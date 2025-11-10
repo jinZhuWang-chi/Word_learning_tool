@@ -31,6 +31,10 @@
       animation: fadeIn 0.5s ease-in;
     }
 
+    .card.no-animation {
+      animation: none;
+    }
+
     @keyframes fadeIn {
       from {
         opacity: 0;
@@ -940,7 +944,10 @@
         this.updatedWords = [];
         this.finalStats = null;
         this.searchTerm = '';
-        
+        this.hasRendered = false;
+
+        this.handleSearchInput = this.handleSearchInput.bind(this);
+
         // 新增：练习设置
         this.practiceSettings = {
           filter: 'due', // 'due', 'all', 'new', 'hard', 'starred'
@@ -1008,14 +1015,34 @@
           const line = raw.trim();
           if (!line) return;
 
-          const parts = line.split(/\s+/);
+          const parts = line.split(/\s+/).filter(Boolean);
           if (parts.length < 2) return;
 
-          const english = parts[0].toLowerCase();
-          const chinese = parts.slice(1).join(' ');
-          const translations = chinese.split(/[,，]/).map(t => t.trim()).filter(t => t);
+          let splitIndex = -1;
+          for (let i = 1; i < parts.length; i++) {
+            const token = parts[i];
+            const hasChinese = /[\u4e00-\u9fa5]/.test(token);
+            const isEnglishLike = /^[a-zA-Z0-9'\/-]+$/.test(token);
+            if (hasChinese || !isEnglishLike) {
+              splitIndex = i;
+              break;
+            }
+          }
 
-          if (!english || translations.length === 0) return;
+          if (splitIndex === -1) {
+            splitIndex = 1;
+          }
+
+          const englishParts = parts.slice(0, splitIndex).map(p => p.toLowerCase());
+          const chineseParts = parts.slice(splitIndex);
+
+          const english = englishParts.join(' ').replace(/\s+/g, ' ').trim();
+          const chineseText = chineseParts.join(' ').trim();
+          if (!english || !chineseText || /[\u4e00-\u9fa5]/.test(english)) return;
+
+          const translations = chineseText.split(/[,，;；、]/).map(t => t.trim()).filter(t => t);
+
+          if (translations.length === 0) return;
 
           const exists = this.library.find(w => w.english === english);
           if (!exists) {
@@ -1252,11 +1279,25 @@
 
       // 跳过当前题目
       skipQuestion() {
+        if (this.isAnswered) {
+          this.handleNext();
+          return;
+        }
+
         const word = this.updatedWords[this.currentIndex];
         const updated = this.fsrs.updateWord(word, 1);
         this.updatedWords[this.currentIndex] = updated;
         this.stats.incorrect += 1;
-        this.handleNext();
+
+        const correctAns = this.currentMode === 2
+          ? word.english
+          : this.currentMode === 3
+            ? `${word.english} ${word.chinese.join('，')}`
+            : word.chinese.join('，');
+
+        this.feedback = { type: 'incorrect', text: `✗ 正确答案：${correctAns}` };
+        this.isAnswered = true;
+        this.render();
       }
 
       // 完成练习
@@ -1268,14 +1309,23 @@
         });
         this.saveLibrary();
         
-        this.finalStats = { 
-          ...this.stats, 
+        this.finalStats = {
+          ...this.stats,
           total: this.updatedWords.length,
-          accuracy: this.updatedWords.length > 0 
+          accuracy: this.updatedWords.length > 0
             ? Math.round((this.stats.correct / this.updatedWords.length) * 100)
             : 0
         };
-        
+
+        this.dueWords = this.updatedWords.map(word => {
+          const refreshed = this.library.find(w => w.english === word.english) || word;
+          return {
+            ...refreshed,
+            chinese: Array.isArray(refreshed.chinese) ? [...refreshed.chinese] : [refreshed.chinese]
+          };
+        });
+        this.currentMode = 0;
+
         this.stage = 'complete';
         this.render();
       }
@@ -1480,9 +1530,10 @@
       
       render() {
         const app = document.getElementById('app');
+        const cardClass = this.hasRendered ? 'card no-animation' : 'card';
         app.innerHTML = `
           <div class="container">
-            <div class="card">
+            <div class="${cardClass}">
               ${this.renderHeader()}
               <div class="content">
                 ${this.renderStage()}
@@ -1492,6 +1543,7 @@
           </div>
         `;
         this.attachEventListeners();
+        this.hasRendered = true;
       }
 
       renderHeader() {
@@ -1706,7 +1758,7 @@
       renderWordList() {
         if (this.library.length === 0) {
           return `
-            <div class="section">
+            <div class="section" id="wordListSection">
               <h2 class="section-title">📖 单词列表</h2>
               <div style="text-align: center; padding: 40px; color: #64748b;">
                 暂无单词，请先添加单词到词库
@@ -1730,9 +1782,9 @@
         const now = Date.now();
 
         return `
-          <div class="section">
+          <div class="section" id="wordListSection">
             <h2 class="section-title">📖 单词列表 (${filteredWords.length}/${this.library.length})</h2>
-            
+
             <input
               type="search"
               id="searchInput"
@@ -1891,12 +1943,12 @@
                 ${this.isAnswered ? '下一题 →' : '检查答案'}
               </button>
               ${!this.isAnswered ? `
-                <button class="btn-secondary btn-small" id="skipBtn">跳过</button>
+                <button class="btn-secondary btn-small" id="skipBtn">不会</button>
               ` : ''}
             </div>
-            
+
             <button class="btn-secondary" id="backToModeBtn" style="width: 100%; margin-top: 15px;">
-              ← 返回选择模式
+              ← 返回模式选择
             </button>
           </div>
         `;
@@ -1931,7 +1983,7 @@
             ${this.renderLearningCurve()}
 
             <div class="button-group">
-              <button class="btn-primary" id="continueBtn">🔄 继续复习</button>
+              <button class="btn-primary" id="continueBtn">🎯 切换练习模式</button>
               <button class="btn-secondary" id="backToLibraryCompleteBtn">📚 返回词库</button>
             </div>
           </div>
@@ -2009,12 +2061,8 @@
         this.bindEvent('exportBtn', 'click', () => this.exportLibrary());
         this.bindEvent('importBtn', 'click', () => this.importLibrary());
         this.bindEvent('clearBtn', 'click', () => this.clearLibrary());
-        
-        this.bindEvent('searchInput', 'input', (e) => {
-          this.searchTerm = e.target.value.toLowerCase();
-          this.render();
-          document.getElementById('searchInput')?.focus(); // 保持焦点
-        });
+
+        this.setupSearchInput();
         
         // 练习设置页面
         this.bindEvent('startConfiguredPracticeBtn', 'click', () => this.startConfiguredPractice());
@@ -2053,17 +2101,55 @@
         this.bindEvent('skipBtn', 'click', () => this.skipQuestion());
         this.bindEvent('backToModeBtn', 'click', () => {
           if (confirm('确定要退出当前练习吗？进度将不会保存。')) {
-            this.stage = 'settings'; // 改为返回设置页面
+            this.stage = 'mode';
+            this.currentMode = 0;
             this.render();
           }
         });
 
         // 完成页面
-        this.bindEvent('continueBtn', 'click', () => this.startPractice()); // 改为返回设置页面
+        this.bindEvent('continueBtn', 'click', () => {
+          this.stage = 'mode';
+          this.currentMode = 0;
+          this.render();
+        });
         this.bindEvent('backToLibraryCompleteBtn', 'click', () => {
           this.stage = 'library';
           this.render();
         });
+      }
+
+      setupSearchInput(shouldFocus = false) {
+        const searchInput = document.getElementById('searchInput');
+        if (!searchInput) return;
+
+        searchInput.value = this.searchTerm;
+        searchInput.oninput = this.handleSearchInput;
+
+        if (shouldFocus) {
+          const length = searchInput.value.length;
+          searchInput.focus();
+          searchInput.setSelectionRange(length, length);
+        }
+      }
+
+      handleSearchInput(event) {
+        this.updateSearchTerm(event.target.value);
+      }
+
+      updateSearchTerm(value) {
+        this.searchTerm = (value || '').toLowerCase();
+        this.refreshWordList();
+      }
+
+      refreshWordList() {
+        if (this.stage !== 'library') return;
+
+        const section = document.getElementById('wordListSection');
+        if (!section) return;
+
+        section.outerHTML = this.renderWordList();
+        this.setupSearchInput(true);
       }
 
       bindEvent(id, eventType, handler) {
