@@ -5,34 +5,209 @@
   <title>两行词条 ➜ 单行词表转换器</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --bg:#0f172a; --card:#111827; --fg:#e5e7eb; --muted:#94a3b8; --acc:#22d3ee; }
-    html,body{height:100%}
-    body{margin:0;background:linear-gradient(135deg,#0b1220,#0a0f1a);color:var(--fg);
-         font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
-    .card{background:rgba(17,24,39,.7);backdrop-filter: blur(8px);border:1px solid #263244;
-          border-radius:16px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
-    h1{font-size:20px;margin:0 0 14px}
-    .row{display:grid;gap:12px}
-    @media (min-width:900px){ .row{grid-template-columns:1fr 1fr} }
-    textarea{width:100%;min-height:340px;background:#0b1322;color:var(--fg);
-             border:1px solid #2a3a52;border-radius:12px;padding:12px;resize:vertical}
-    .out{min-height:340px;white-space:pre;overflow:auto}
-    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}
-    .btn{background:linear-gradient(180deg,#1f2937,#111827);color:#e6faff;border:1px solid #304055;
-         padding:8px 14px;border-radius:10px;cursor:pointer}
-    .btn:hover{filter:brightness(1.06)}
-    .btn:active{transform:translateY(1px)}
-    .field{display:flex;gap:8px;align-items:center;color:var(--muted)}
-    input[type=text]{background:#0b1322;color:var(--fg);border:1px solid #2a3a52;border-radius:8px;padding:6px 8px;width:8em}
-    select{background:#0b1322;color:var(--fg);border:1px solid #2a3a52;border-radius:8px;padding:6px 8px}
-    .hint{color:var(--muted);font-size:12px;margin-top:6px}
-    .counter{margin-left:auto;color:var(--muted)}
-    .outbox{background:#0b1322;border:1px solid #2a3a52;border-radius:12px;padding:12px}
-    .footer{color:#6b7280;font-size:12px;margin-top:10px}
-    .pill{display:inline-block;background:#0b1322;border:1px solid #2a3a52;color:#bfefff;
-          padding:2px 8px;border-radius:999px;margin-left:8px}
-  </style>
+    :root {
+      color-scheme: dark;
+      --bg: radial-gradient(circle at top, #1b2540 0%, #0b1224 55%, #050910 100%);
+      --surface: rgba(17, 24, 39, 0.86);
+      --border: rgba(59, 73, 102, 0.6);
+      --accent: #22d3ee;
+      --muted: #94a3b8;
+      --radius-lg: 18px;
+      --radius-md: 14px;
+      --shadow: 0 18px 38px rgba(2, 6, 23, 0.55);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background: var(--bg);
+      color: #e2e8f0;
+      font: 15px/1.6 "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      display: flex;
+      justify-content: center;
+      padding: 28px 16px 36px;
+    }
+
+    .wrap {
+      width: min(100%, 420px);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px 18px 26px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      backdrop-filter: blur(12px);
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.4;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .pill {
+      background: rgba(34, 211, 238, 0.15);
+      border: 1px solid rgba(34, 211, 238, 0.5);
+      color: #67e8f9;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .btn {
+      width: 100%;
+      background: linear-gradient(160deg, #1f2937, #111827);
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      padding: 12px 16px;
+      border-radius: var(--radius-md);
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(148, 163, 184, 0.7);
+      box-shadow: 0 12px 22px rgba(15, 23, 42, 0.35);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+      box-shadow: none;
+    }
+
+    .toolbar .field,
+    .toolbar label.field {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      width: 100%;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    select,
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: rgba(10, 17, 33, 0.85);
+      color: #f1f5f9;
+      font-size: 14px;
+    }
+
+    select:focus,
+    input[type="text"]:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.25);
+    }
+
+    .toolbar .counter {
+      align-self: center;
+      font-size: 13px;
+      color: var(--muted);
+      padding-top: 2px;
+    }
+
+    .row {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 220px;
+      background: rgba(10, 17, 33, 0.92);
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      font-family: "JetBrains Mono", "SFMono-Regular", "Courier New", monospace;
+      font-size: 14px;
+      resize: vertical;
+    }
+
+    .outbox {
+      background: rgba(10, 17, 33, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .out {
+      flex: 1;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-y: auto;
+      font-family: "JetBrains Mono", "SFMono-Regular", "Courier New", monospace;
+      font-size: 13px;
+      color: #f1f5f9;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .footer {
+      font-size: 12px;
+      color: rgba(148, 163, 184, 0.8);
+      margin-top: 10px;
+      line-height: 1.6;
+    }
+
+    @media (min-width: 520px) {
+      body {
+        padding: 36px 24px;
+      }
+
+      .card {
+        padding: 26px 22px 30px;
+        gap: 20px;
+      }
+
+      .toolbar {
+        gap: 14px;
+      }
+
+      .row {
+        gap: 20px;
+      }
+    }
+</style>
 </head>
 <body>
   <div class="wrap">
