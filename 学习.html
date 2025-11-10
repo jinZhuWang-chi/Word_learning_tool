@@ -601,6 +601,30 @@
       font-size: 12px;
       color: #64748b;
     }
+
+    .mode-progress-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .mode-progress-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .mode-progress-badge.mastered { background: #d1fae5; color: #047857; }
+    .mode-progress-badge.reviewing { background: #fef3c7; color: #b45309; }
+    .mode-progress-badge.learning { background: #fee2e2; color: #b91c1c; }
+    .mode-progress-badge.new { background: #e0e7ff; color: #4338ca; }
     
     .settings-container {
       max-width: 900px;
@@ -794,7 +818,16 @@
         gap: 10px;
         flex-wrap: wrap;
       }
-      
+
+      .mode-progress-row {
+        width: 100%;
+      }
+
+      .mode-progress-badge {
+        width: 100%;
+        justify-content: center;
+      }
+
       .curve-item {
         flex-direction: column;
         align-items: flex-start;
@@ -813,7 +846,16 @@
   <div id="app"></div>
 
   <script>
-    // ==================== FSRS 算法（完整版）====================
+    // ==================== 模式配置与 FSRS 扩展 ====================
+    const MODE_CONFIG = {
+      1: { key: 'enToCn', label: '英译中', successRating: 3, stabilityBonus: 0.08, difficultyBonus: 0.1 },
+      2: { key: 'cnToEn', label: '中译英', successRating: 4, stabilityBonus: 0.18, difficultyBonus: 0.18 },
+      3: { key: 'dictation', label: '听写模式', successRating: 4, stabilityBonus: 0.35, difficultyBonus: 0.25 }
+    };
+
+    const MODE_IDS = Object.keys(MODE_CONFIG);
+    const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
     class FSRS {
       constructor() {
         this.w = [0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01, 1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29, 2.61];
@@ -831,12 +873,12 @@
       nextStability(d, s, r, rating) {
         const hardPenalty = rating === 2 ? this.w[15] : 1;
         const easyBonus = rating === 4 ? this.w[16] : 1;
-        
+
         const newS = s * (
           Math.exp(this.w[8]) * (11 - d) * Math.pow(s, -this.w[9]) *
           (Math.exp((1 - r) * this.w[10]) - 1) * hardPenalty * easyBonus + 1
         );
-        
+
         return Math.max(newS, 0.1);
       }
 
@@ -858,54 +900,217 @@
         return Math.max(1, Math.round(interval));
       }
 
+      createProgress(now = Date.now()) {
+        return {
+          difficulty: 5,
+          stability: 0.1,
+          reps: 0,
+          lapses: 0,
+          last_review: null,
+          due: now,
+          retrievability: 0,
+          state: 'new',
+          interval: 0,
+          consecutiveCorrect: 0,
+          bestStreak: 0,
+          totalAttempts: 0,
+          correctAttempts: 0,
+          accuracy: 0,
+          lastRating: null
+        };
+      }
+
+      normalizeProgress(progress, now = Date.now()) {
+        const base = this.createProgress(now);
+        const normalized = { ...base, ...(progress || {}) };
+        normalized.due = typeof normalized.due === 'number' && !Number.isNaN(normalized.due)
+          ? normalized.due
+          : now;
+        normalized.interval = typeof normalized.interval === 'number' && !Number.isNaN(normalized.interval)
+          ? normalized.interval
+          : 0;
+        normalized.accuracy = normalized.totalAttempts > 0
+          ? normalized.correctAttempts / normalized.totalAttempts
+          : 0;
+        normalized.state = normalized.state || 'new';
+        normalized.consecutiveCorrect = normalized.consecutiveCorrect || 0;
+        normalized.bestStreak = normalized.bestStreak || 0;
+        normalized.reps = normalized.reps || 0;
+        normalized.lapses = normalized.lapses || 0;
+        return normalized;
+      }
+
+      createModeProgressSet(existing = {}, now = Date.now()) {
+        const result = {};
+        MODE_IDS.forEach(mode => {
+          result[mode] = this.normalizeProgress(existing[mode], now);
+        });
+        return result;
+      }
+
+      updateProgress(progress, rating, options = {}) {
+        const now = Date.now();
+        const base = this.normalizeProgress(progress, now);
+        const updated = { ...base };
+
+        if (base.reps === 0) {
+          updated.difficulty = this.initDifficulty(rating);
+          updated.stability = this.initStability(rating);
+          updated.retrievability = 1;
+        } else {
+          const elapsedDays = base.last_review ? (now - base.last_review) / DAY_IN_MS : 0;
+          updated.retrievability = this.forgettingCurve(elapsedDays, base.stability);
+          const nextDifficulty = this.nextDifficulty(base.difficulty, rating);
+          updated.difficulty = nextDifficulty;
+          updated.stability = this.nextStability(
+            nextDifficulty,
+            base.stability,
+            updated.retrievability,
+            rating
+          );
+        }
+
+        updated.reps = base.reps + 1;
+        if (rating === 1) {
+          updated.lapses = base.lapses + 1;
+        }
+
+        if (rating >= 3) {
+          updated.consecutiveCorrect = base.consecutiveCorrect + 1;
+          updated.correctAttempts = base.correctAttempts + 1;
+          if (options.stabilityBonus) {
+            updated.stability *= 1 + options.stabilityBonus;
+          }
+          if (options.difficultyBonus) {
+            updated.difficulty = this.constrainDifficulty(updated.difficulty - options.difficultyBonus);
+          }
+        } else {
+          updated.consecutiveCorrect = 0;
+          if (options.degradeOnFail) {
+            updated.stability = Math.max(updated.stability * 0.6, 0.05);
+            updated.difficulty = this.constrainDifficulty(updated.difficulty + 0.5);
+          }
+        }
+
+        updated.bestStreak = Math.max(base.bestStreak, updated.consecutiveCorrect);
+        updated.totalAttempts = base.totalAttempts + 1;
+        updated.accuracy = updated.totalAttempts > 0
+          ? updated.correctAttempts / updated.totalAttempts
+          : 0;
+
+        updated.last_review = now;
+        updated.lastRating = rating;
+
+        updated.interval = this.nextInterval(updated.stability);
+        updated.due = now + updated.interval * DAY_IN_MS;
+
+        updated.state = this.getProgressState(updated);
+
+        return updated;
+      }
+
+      aggregateWord(word) {
+        if (!word) return word;
+        const now = Date.now();
+        const modeProgress = this.createModeProgressSet(word.modeProgress, now);
+        const aggregated = { ...word, modeProgress };
+
+        let difficultySum = 0;
+        let stabilitySum = 0;
+        let retrievabilitySum = 0;
+        let repsSum = 0;
+        let lapsesSum = 0;
+        let lastReview = 0;
+        let earliestDue = Infinity;
+        let shortestInterval = Infinity;
+        let masteredModes = 0;
+        let activeModes = 0;
+        let strugglingModes = 0;
+
+        MODE_IDS.forEach(mode => {
+          const progress = modeProgress[mode];
+          difficultySum += progress.difficulty;
+          stabilitySum += progress.stability;
+          retrievabilitySum += progress.retrievability || 0;
+          repsSum += progress.reps;
+          lapsesSum += progress.lapses;
+          if (progress.last_review) {
+            lastReview = Math.max(lastReview, progress.last_review);
+          }
+          if (typeof progress.due === 'number' && !Number.isNaN(progress.due)) {
+            earliestDue = Math.min(earliestDue, progress.due);
+          }
+          if (typeof progress.interval === 'number' && progress.interval > 0) {
+            shortestInterval = Math.min(shortestInterval, progress.interval);
+          }
+          if (progress.state === 'mastered') {
+            masteredModes += 1;
+          }
+          if (progress.reps > 0) {
+            activeModes += 1;
+          }
+          const attempts = progress.totalAttempts || 0;
+          const correct = progress.correctAttempts || 0;
+          if (attempts >= 3 && (attempts - correct) / attempts >= 0.4) {
+            strugglingModes += 1;
+          }
+        });
+
+        const modeCount = MODE_IDS.length || 1;
+        aggregated.difficulty = difficultySum / modeCount;
+        aggregated.stability = stabilitySum / modeCount;
+        aggregated.retrievability = retrievabilitySum / modeCount;
+        aggregated.reps = repsSum;
+        aggregated.lapses = lapsesSum;
+        aggregated.last_review = lastReview || null;
+        aggregated.due = Number.isFinite(earliestDue) ? earliestDue : now;
+        aggregated.interval = Number.isFinite(shortestInterval) ? shortestInterval : 0;
+        aggregated.masteredModes = masteredModes;
+        aggregated.activeModes = activeModes;
+
+        if (masteredModes >= 2) {
+          aggregated.state = 'mastered';
+        } else if (activeModes >= 2 && strugglingModes === 0) {
+          aggregated.state = 'reviewing';
+        } else if (activeModes > 0) {
+          aggregated.state = 'learning';
+        } else {
+          aggregated.state = 'new';
+        }
+
+        return aggregated;
+      }
+
+      getProgressState(progress) {
+        if (!progress || progress.reps === 0) return 'new';
+        const accuracy = progress.accuracy || 0;
+        if (progress.consecutiveCorrect >= 5 && accuracy >= 0.9 && progress.interval >= 21) {
+          return 'mastered';
+        }
+        if (progress.consecutiveCorrect >= 3 && accuracy >= 0.75) {
+          return 'reviewing';
+        }
+        if (accuracy < 0.6 || progress.lapses >= 2) {
+          return 'learning';
+        }
+        return 'learning';
+      }
+
       getDifficultyLevel(difficulty) {
         if (difficulty <= 3) return 'easy';
         if (difficulty <= 7) return 'medium';
         return 'hard';
       }
 
-      updateWord(word, rating) {
+      updateWord(word, rating, modeKey, options = {}) {
+        if (!modeKey) return this.aggregateWord(word);
         const now = Date.now();
-        const newWord = { ...word };
-
-        if (newWord.reps === 0) {
-          newWord.difficulty = this.initDifficulty(rating);
-          newWord.stability = this.initStability(rating);
-          newWord.retrievability = 1;
-        } else {
-          const elapsedDays = newWord.last_review 
-            ? (now - newWord.last_review) / (1000 * 60 * 60 * 24) 
-            : 0;
-          
-          newWord.retrievability = this.forgettingCurve(elapsedDays, newWord.stability);
-          newWord.difficulty = this.nextDifficulty(newWord.difficulty, rating);
-          newWord.stability = this.nextStability(
-            newWord.difficulty, 
-            newWord.stability, 
-            newWord.retrievability, 
-            rating
-          );
-        }
-
-        newWord.reps += 1;
-        if (rating === 1) {
-          newWord.lapses += 1;
-        }
-        newWord.last_review = now;
-        newWord.state = this.getWordState(newWord.reps, rating);
-
-        const intervalDays = this.nextInterval(newWord.stability);
-        newWord.due = now + intervalDays * 24 * 60 * 60 * 1000;
-        newWord.interval = intervalDays;
-
-        return newWord;
-      }
-
-      getWordState(reps, lastRating) {
-        if (reps === 0) return 'new';
-        if (reps < 3) return 'learning';
-        if (reps >= 10 && lastRating >= 3) return 'mastered';
-        return 'reviewing';
+        const working = { ...word };
+        working.modeProgress = this.createModeProgressSet(working.modeProgress, now);
+        const progress = working.modeProgress[modeKey];
+        const updatedProgress = this.updateProgress(progress, rating, options);
+        working.modeProgress[modeKey] = updatedProgress;
+        return this.aggregateWord(working);
       }
     }
 
@@ -925,6 +1130,13 @@
         this.updatedWords = [];
         this.finalStats = null;
         this.searchTerm = '';
+        this.contentContainer = null;
+        this.isInitialized = false;
+        this.attemptLog = [];
+        this.repeatQueue = [];
+        this.lastScrollY = 0;
+        this.sessionBaseline = {};
+        this.sessionResults = {};
 
         this.handleSearchInput = this.handleSearchInput.bind(this);
 
@@ -944,20 +1156,9 @@
           if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed)) {
-              this.library = parsed.map(w => ({
-                english: w.english || '',
-                chinese: Array.isArray(w.chinese) ? w.chinese : [w.chinese || ''],
-                difficulty: w.difficulty || 5,
-                stability: w.stability || 0.1,
-                reps: w.reps || 0,
-                lapses: w.lapses || 0,
-                last_review: w.last_review || null,
-                due: w.due || Date.now(),
-                retrievability: w.retrievability || 0,
-                state: w.state || 'new',
-                interval: w.interval || 0,
-                isStarred: w.isStarred || false
-              }));
+              this.library = parsed
+                .map(item => this.normalizeWord(item))
+                .filter(Boolean);
             }
           }
         } catch (e) {
@@ -968,11 +1169,56 @@
 
       saveLibrary() {
         try {
-          localStorage.setItem('wordLibrary_v2', JSON.stringify(this.library));
+          const normalized = this.library.map(word => this.fsrs.aggregateWord(word));
+          this.library = normalized;
+          localStorage.setItem('wordLibrary_v2', JSON.stringify(normalized));
         } catch (e) {
           console.error('Save error:', e);
           alert('保存失败，可能是存储空间不足！');
         }
+      }
+
+      normalizeWord(rawWord) {
+        if (!rawWord || !rawWord.english) return null;
+        const now = Date.now();
+        const english = String(rawWord.english || '').trim();
+        if (!english) return null;
+
+        const chineseList = Array.isArray(rawWord.chinese)
+          ? rawWord.chinese
+          : typeof rawWord.chinese === 'string'
+            ? rawWord.chinese.split(/[,，;；、]/)
+            : [];
+        const sanitizedChinese = chineseList
+          .map(item => String(item || '').trim())
+          .filter(Boolean);
+
+        let modeProgress;
+        if (rawWord.modeProgress) {
+          modeProgress = this.fsrs.createModeProgressSet(rawWord.modeProgress, now);
+        } else {
+          const legacyProgress = this.fsrs.normalizeProgress({
+            difficulty: rawWord.difficulty,
+            stability: rawWord.stability,
+            reps: rawWord.reps,
+            lapses: rawWord.lapses,
+            last_review: rawWord.last_review,
+            due: rawWord.due,
+            retrievability: rawWord.retrievability,
+            interval: rawWord.interval
+          }, now);
+          modeProgress = this.fsrs.createModeProgressSet({}, now);
+          modeProgress['1'] = legacyProgress;
+        }
+
+        const word = {
+          english,
+          chinese: sanitizedChinese.length ? sanitizedChinese : [''],
+          isStarred: !!rawWord.isStarred,
+          modeProgress
+        };
+
+        return this.fsrs.aggregateWord(word);
       }
 
       addWords(text) {
@@ -1015,26 +1261,22 @@
           const chineseText = chineseParts.join(' ').trim();
           if (!english || !chineseText || /[\u4e00-\u9fa5]/.test(english)) return;
 
-          const translations = chineseText.split(/[,，;；、]/).map(t => t.trim()).filter(t => t);
+          const translations = chineseText
+            .split(/[,，;；、]/)
+            .map(t => t.trim())
+            .filter(t => t);
 
           if (translations.length === 0) return;
 
           const exists = this.library.find(w => w.english === english);
           if (!exists) {
-            newWords.push({
+            const word = {
               english,
               chinese: translations,
-              difficulty: 5,
-              stability: 0.1,
-              reps: 0,
-              lapses: 0,
-              last_review: null,
-              due: now,
-              retrievability: 0,
-              state: 'new',
-              interval: 0,
-              isStarred: false
-            });
+              isStarred: false,
+              modeProgress: this.fsrs.createModeProgressSet({}, now)
+            };
+            newWords.push(this.fsrs.aggregateWord(word));
           } else {
             duplicates++;
           }
@@ -1113,10 +1355,20 @@
         this.feedback = null;
         this.isAnswered = false;
         this.stats = { correct: 0, incorrect: 0 };
+        this.attemptLog = [];
+        this.repeatQueue = [];
+        this.sessionBaseline = {};
+        this.dueWords.forEach(word => {
+          this.sessionBaseline[word.english] = word.masteredModes || 0;
+        });
         this.updatedWords = JSON.parse(JSON.stringify(this.dueWords));
+        this.sessionResults = {};
+        this.updatedWords.forEach(word => {
+          this.sessionResults[word.english] = word;
+        });
         this.stage = 'practice';
         this.render();
-        
+
         setTimeout(() => {
           if (mode === 1 || mode === 3) {
             this.playAudio();
@@ -1165,7 +1417,12 @@
 
         const word = this.updatedWords[this.currentIndex];
         let isCorrect = false;
-        let rating = 1;
+        const modeKey = String(this.currentMode);
+        const modeConfig = MODE_CONFIG[this.currentMode] || {
+          successRating: 4,
+          stabilityBonus: 0,
+          difficultyBonus: 0
+        };
 
         if (this.currentMode === 1) {
           isCorrect = word.chinese.some(t => {
@@ -1173,11 +1430,11 @@
             const target = t.toLowerCase().replace(/\s+/g, '');
             return normalized.includes(target) || target.includes(normalized);
           });
-        } 
+        }
         else if (this.currentMode === 2) {
           const normalized = text.toLowerCase().trim();
           isCorrect = normalized === word.english.toLowerCase();
-        } 
+        }
         else if (this.currentMode === 3) {
           const parts = text.split(/\s+/);
           if (parts.length >= 2) {
@@ -1195,22 +1452,40 @@
         }
 
         if (isCorrect) {
-          rating = 4;
           this.stats.correct += 1;
           this.feedback = { type: 'correct', text: '✓ 正确！很棒！' };
         } else {
-          rating = 1;
           this.stats.incorrect += 1;
-          const correctAns = this.currentMode === 2 
-            ? word.english 
+          const correctAns = this.currentMode === 2
+            ? word.english
             : this.currentMode === 3
               ? `${word.english} ${word.chinese.join('，')}`
               : word.chinese.join('，');
           this.feedback = { type: 'incorrect', text: `✗ 错误！正确答案：${correctAns}` };
         }
 
-        const updated = this.fsrs.updateWord(word, rating);
+        const rating = isCorrect ? modeConfig.successRating : 1;
+        const updated = this.fsrs.updateWord(word, rating, modeKey, {
+          stabilityBonus: isCorrect ? modeConfig.stabilityBonus : 0,
+          difficultyBonus: isCorrect ? modeConfig.difficultyBonus : 0,
+          degradeOnFail: true
+        });
         this.updatedWords[this.currentIndex] = updated;
+        this.sessionResults[updated.english] = updated;
+        this.attemptLog.push({
+          english: word.english,
+          mode: this.currentMode,
+          correct: isCorrect,
+          rating
+        });
+        if (!isCorrect) {
+          const scheduled = this.repeatQueue.find(item => item.english === updated.english);
+          if (!scheduled) {
+            const repeatCopy = JSON.parse(JSON.stringify(updated));
+            repeatCopy._originMode = this.currentMode;
+            this.repeatQueue.push(repeatCopy);
+          }
+        }
         this.isAnswered = true;
         this.render();
 
@@ -1221,16 +1496,23 @@
 
       handleNext() {
         if (this.currentIndex + 1 >= this.updatedWords.length) {
-          this.completePractice();
-          return;
+          if (this.repeatQueue.length > 0) {
+            const repeats = this.repeatQueue.map(word => this.fsrs.aggregateWord(word));
+            this.updatedWords = [...this.updatedWords, ...repeats];
+            this.repeatQueue = [];
+          } else {
+            this.completePractice();
+            return;
+          }
         }
-        
+
         this.currentIndex += 1;
+
         this.answer = '';
         this.feedback = null;
         this.isAnswered = false;
         this.render();
-        
+
         setTimeout(() => {
           if (this.currentMode === 1 || this.currentMode === 3) {
             this.playAudio();
@@ -1242,9 +1524,25 @@
 
       skipQuestion() {
         const word = this.updatedWords[this.currentIndex];
-        const updated = this.fsrs.updateWord(word, 1);
+        const modeKey = String(this.currentMode);
+        const updated = this.fsrs.updateWord(word, 1, modeKey, {
+          degradeOnFail: true
+        });
         this.updatedWords[this.currentIndex] = updated;
+        this.sessionResults[updated.english] = updated;
         this.stats.incorrect += 1;
+        this.attemptLog.push({
+          english: word.english,
+          mode: this.currentMode,
+          correct: false,
+          rating: 1
+        });
+        const scheduled = this.repeatQueue.find(item => item.english === updated.english);
+        if (!scheduled) {
+          const repeatCopy = JSON.parse(JSON.stringify(updated));
+          repeatCopy._originMode = this.currentMode;
+          this.repeatQueue.push(repeatCopy);
+        }
 
         const correctAns = this.currentMode === 2
           ? word.english
@@ -1258,20 +1556,30 @@
       }
 
       completePractice() {
+        const finalResults = Object.values(this.sessionResults);
+        this.updatedWords = finalResults;
         this.library = this.library.map(w => {
-          const updated = this.updatedWords.find(uw => uw.english === w.english);
-          return updated || w;
+          const updated = this.sessionResults[w.english];
+          return updated ? this.fsrs.aggregateWord(updated) : w;
         });
         this.saveLibrary();
-        
+
         this.finalStats = {
           ...this.stats,
-          total: this.updatedWords.length,
-          accuracy: this.updatedWords.length > 0
-            ? Math.round((this.stats.correct / this.updatedWords.length) * 100)
-            : 0
+          totalWords: finalResults.length,
+          totalAttempts: this.attemptLog.length,
+          accuracy: this.attemptLog.length > 0
+            ? Math.round((this.stats.correct / this.attemptLog.length) * 100)
+            : 0,
+          masteredWords: finalResults.filter(w => (w.masteredModes || 0) >= 2).length,
+          newlyMastered: finalResults.filter(w => {
+            const baseline = this.sessionBaseline[w.english] || 0;
+            return baseline < 2 && (w.masteredModes || 0) >= 2;
+          }).length,
+          repeatAttempts: Math.max(this.attemptLog.length - finalResults.length, 0)
         };
 
+        this.repeatQueue = [];
         this.stage = 'complete';
         this.render();
       }
@@ -1294,19 +1602,12 @@
         const now = Date.now();
         this.library = this.library.map(w => {
           if (w.english === english) {
-            return {
+            const resetWord = {
               ...w,
-              difficulty: 5,
-              stability: 0.1,
-              reps: 0,
-              lapses: 0,
-              last_review: null,
-              due: now,
-              retrievability: 0,
-              state: 'new',
-              interval: 0,
-              isStarred: w.isStarred
+              isStarred: w.isStarred,
+              modeProgress: this.fsrs.createModeProgressSet({}, now)
             };
+            return this.fsrs.aggregateWord(resetWord);
           }
           return w;
         });
@@ -1428,21 +1729,9 @@
               
               let added = 0;
               imported.forEach(word => {
-                if (word.english && !this.library.find(w => w.english === word.english)) {
-                  this.library.push({
-                    english: word.english || '',
-                    chinese: Array.isArray(word.chinese) ? word.chinese : [word.chinese || ''],
-                    difficulty: word.difficulty || 5,
-                    stability: word.stability || 0.1,
-                    reps: word.reps || 0,
-                    lapses: word.lapses || 0,
-                    last_review: word.last_review || null,
-                    due: word.due || Date.now(),
-                    retrievability: word.retrievability || 0,
-                    state: word.state || 'new',
-                    interval: word.interval || 0,
-                    isStarred: word.isStarred || false
-                  });
+                const normalized = this.normalizeWord(word);
+                if (normalized && !this.library.find(w => w.english === normalized.english)) {
+                  this.library.push(normalized);
                   added++;
                 }
               });
@@ -1459,20 +1748,40 @@
         input.click();
       }
 
-      render() {
+      render(forceFull = false) {
         const app = document.getElementById('app');
-        app.innerHTML = `
-          <div class="container">
-            <div class="card">
-              ${this.renderHeader()}
-              <div class="content">
-                ${this.renderStage()}
+        if (!app) return;
+
+        if (this.stage === 'library') {
+          this.lastScrollY = window.scrollY;
+        } else {
+          this.lastScrollY = 0;
+        }
+
+        if (!this.isInitialized || forceFull) {
+          app.innerHTML = `
+            <div class="container">
+              <div class="card">
+                ${this.renderHeader()}
+                <div class="content"></div>
               </div>
+              ${this.renderFooter()}
             </div>
-            ${this.renderFooter()}
-          </div>
-        `;
+          `;
+          this.contentContainer = app.querySelector('.content');
+          this.isInitialized = true;
+        }
+
+        if (this.contentContainer) {
+          this.contentContainer.innerHTML = this.renderStage();
+        }
+
         this.attachEventListeners();
+
+        const targetScroll = this.stage === 'library' ? this.lastScrollY : 0;
+        window.requestAnimationFrame(() => {
+          window.scrollTo(0, targetScroll);
+        });
       }
 
       renderHeader() {
@@ -1572,11 +1881,50 @@
         `;
       }
 
+      getProgressStateLabel(state) {
+        const map = {
+          new: '待启动',
+          learning: '学习中',
+          reviewing: '巩固中',
+          mastered: '已熟练'
+        };
+        return map[state] || state;
+      }
+
+      getWordAverageAccuracy(word) {
+        if (!word || !word.modeProgress) return 0;
+        const total = MODE_IDS.reduce((sum, mode) => {
+          const progress = word.modeProgress[mode];
+          return sum + (progress ? progress.accuracy || 0 : 0);
+        }, 0);
+        return Math.round((total / MODE_IDS.length) * 100);
+      }
+
+      renderModeBadges(word) {
+        if (!word || !word.modeProgress) return '';
+        return `
+          <div class="mode-progress-row">
+            ${MODE_IDS.map(mode => {
+              const progress = word.modeProgress[mode];
+              const config = MODE_CONFIG[mode];
+              if (!progress || !config) return '';
+              const accuracy = Math.round((progress.accuracy || 0) * 100);
+              const stateLabel = this.getProgressStateLabel(progress.state);
+              return `
+                <span class="mode-progress-badge ${progress.state}">
+                  ${config.label} · ${stateLabel} · ${accuracy}%
+                </span>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }
+
       renderWordList() {
         const now = Date.now();
         const term = this.searchTerm.toLowerCase();
         let displayWords = this.library;
-        
+
         if (term) {
           displayWords = this.library.filter(w => 
             w.english.toLowerCase().includes(term) || 
@@ -1612,6 +1960,7 @@
                     <div class="word-main">
                       <div class="word-english">${word.english}</div>
                       <div class="word-chinese">${word.chinese.join('，')}</div>
+                      ${this.renderModeBadges(word)}
                     </div>
                     <div class="word-stats">
                       <span class="difficulty-badge difficulty-${difficultyLevel}">
@@ -1619,6 +1968,8 @@
                       </span>
                       <span>复习 ${word.reps} 次</span>
                       <span>间隔 ${word.interval} 天</span>
+                      <span>掌握模式 ${word.masteredModes || 0}/${MODE_IDS.length}</span>
+                      <span>平均正确率 ${this.getWordAverageAccuracy(word)}%</span>
                       ${isDue ? '<span style="color: #dc2626; font-weight: 600;">待复习</span>' : ''}
                       <button onclick="app.resetWord('${word.english}')" style="padding: 5px 10px; font-size: 12px; background: #fef3c7; color: #d97706; border: none; border-radius: 5px; cursor: pointer;">重置</button>
                       <button onclick="app.deleteWord('${word.english}')" style="padding: 5px 10px; font-size: 12px; background: #fee2e2; color: #dc2626; border: none; border-radius: 5px; cursor: pointer;">删除</button>
@@ -1747,9 +2098,9 @@
           <div>
             <h2 class="section-title" style="text-align: center;">选择练习模式</h2>
             <p class="section-desc" style="text-align: center;">
-              本次将练习 <strong>${this.dueWords.length}</strong> 个单词
+              本次将练习 <strong>${this.dueWords.length}</strong> 个单词，单词需在至少两种模式下达标才会记为“已熟练”
             </p>
-            
+
             <div class="mode-grid">
               <div class="mode-card" data-mode="1">
                 <div class="mode-icon">🎧</div>
@@ -1880,11 +2231,11 @@
         return `
           <div class="complete-container">
             <div class="complete-title">🎉 练习完成！</div>
-            
+
             <div class="complete-stats">
               <div class="complete-stat-card">
-                <div class="complete-stat-value purple">${this.finalStats.total}</div>
-                <div class="complete-stat-label">总题数</div>
+                <div class="complete-stat-value purple">${this.finalStats.totalAttempts}</div>
+                <div class="complete-stat-label">总作答次数</div>
               </div>
               <div class="complete-stat-card">
                 <div class="complete-stat-value green">${this.finalStats.correct}</div>
@@ -1894,8 +2245,27 @@
                 <div class="complete-stat-value purple">${this.finalStats.accuracy}%</div>
                 <div class="complete-stat-label">正确率</div>
               </div>
+              <div class="complete-stat-card">
+                <div class="complete-stat-value purple">${this.finalStats.totalWords}</div>
+                <div class="complete-stat-label">涉及单词</div>
+              </div>
+              <div class="complete-stat-card">
+                <div class="complete-stat-value green">${this.finalStats.masteredWords}</div>
+                <div class="complete-stat-label">多模掌握</div>
+              </div>
+              <div class="complete-stat-card">
+                <div class="complete-stat-value purple">${this.finalStats.newlyMastered}</div>
+                <div class="complete-stat-label">新增熟练</div>
+              </div>
             </div>
-            
+
+            ${this.finalStats.repeatAttempts > 0 ? `
+              <div class="smart-hint" style="margin-top: 20px;">
+                <div class="smart-hint-title">🔁 已自动安排错题加练</div>
+                <div class="smart-hint-text">本次有 ${this.finalStats.repeatAttempts} 次因错误重新练习，系统已自动安排复习，防止重复猜答案。</div>
+              </div>
+            ` : ''}
+
             ${this.renderSmartHint()}
 
             ${this.renderLearningCurve()}
@@ -1910,13 +2280,17 @@
       
       renderSmartHint() {
         const accuracy = this.finalStats.accuracy;
+        const attempts = this.finalStats.totalAttempts || 0;
         const dueCount = this.getStats().due;
         let title = '💡 智能建议';
         let text = '';
 
-        if (accuracy < 70 && this.finalStats.total > 0) {
+        if (accuracy < 70 && attempts > 0) {
           title = '🤔 仍需努力！';
           text = `本次正确率（${accuracy}%）有点低哦。别灰心，被标记为"错误"的单词会很快再次出现，多练几次就记住了！`;
+        } else if (this.finalStats.newlyMastered > 0) {
+          title = '🥳 又掌握了新模式！';
+          text = `有 ${this.finalStats.newlyMastered} 个单词在至少两个模式下达标，继续保持多模练习，记忆会更加牢固！`;
         } else if (dueCount > 0) {
           title = '👍 做得不错！';
           text = `你还有 <strong>${dueCount}</strong> 个单词待复习。休息一下，或点击"返回模式选择"继续挑战吧！`;
@@ -1937,11 +2311,21 @@
       }
 
       renderLearningCurve() {
-        const words = this.updatedWords.slice(0, 10);
-        
+        const words = Object.values(this.sessionResults || {})
+          .sort((a, b) => {
+            if ((b.masteredModes || 0) !== (a.masteredModes || 0)) {
+              return (b.masteredModes || 0) - (a.masteredModes || 0);
+            }
+            return (b.reps || 0) - (a.reps || 0);
+          })
+          .slice(0, 10);
+
         return `
           <div class="curve-chart">
             <div class="curve-title">📊 本次学习记录 (部分)</div>
+            ${words.length === 0 ? `
+              <div style="padding: 10px 0; color: #64748b;">暂无练习记录</div>
+            ` : ''}
             ${words.map(word => {
               const difficultyLevel = this.fsrs.getDifficultyLevel(word.difficulty);
               return `
@@ -1954,7 +2338,9 @@
                     <span>稳定性: ${word.stability.toFixed(1)}天</span>
                     <span>间隔: ${word.interval}天</span>
                     <span>复习: ${word.reps}次</span>
+                    <span>掌握模式: ${word.masteredModes || 0}/${MODE_IDS.length}</span>
                   </div>
+                  ${this.renderModeBadges(word)}
                 </div>
               `;
             }).join('')}
@@ -2056,8 +2442,19 @@
         const section = document.getElementById('wordListSection');
         if (!section) return;
 
+        const list = section.querySelector('.word-list');
+        const scrollTop = list ? list.scrollTop : 0;
+
         section.outerHTML = this.renderWordList();
+        const newSection = document.getElementById('wordListSection');
         this.setupSearchInput(true);
+
+        if (newSection) {
+          const newList = newSection.querySelector('.word-list');
+          if (newList) {
+            newList.scrollTop = scrollTop;
+          }
+        }
       }
 
       refreshSelectedWordsFromLibrary() {
