@@ -2053,7 +2053,7 @@
         this.bindEvent('skipBtn', 'click', () => this.skipQuestion());
         this.bindEvent('backToModeBtn', 'click', () => {
           if (confirm('确定要退出当前练习吗？进度将不会保存。')) {
-            this.stage = 'settings'; // 改为返回设置页面
+            this.stage = 'mode';
             this.render();
           }
         });
