@@ -940,7 +940,9 @@
         this.updatedWords = [];
         this.finalStats = null;
         this.searchTerm = '';
-        
+
+        this.handleSearchInput = this.handleSearchInput.bind(this);
+
         // 新增：练习设置
         this.practiceSettings = {
           filter: 'due', // 'due', 'all', 'new', 'hard', 'starred'
@@ -1008,14 +1010,34 @@
           const line = raw.trim();
           if (!line) return;
 
-          const parts = line.split(/\s+/);
+          const parts = line.split(/\s+/).filter(Boolean);
           if (parts.length < 2) return;
 
-          const english = parts[0].toLowerCase();
-          const chinese = parts.slice(1).join(' ');
-          const translations = chinese.split(/[,，]/).map(t => t.trim()).filter(t => t);
+          let splitIndex = -1;
+          for (let i = 1; i < parts.length; i++) {
+            const token = parts[i];
+            const hasChinese = /[\u4e00-\u9fa5]/.test(token);
+            const isEnglishLike = /^[a-zA-Z0-9'\/-]+$/.test(token);
+            if (hasChinese || !isEnglishLike) {
+              splitIndex = i;
+              break;
+            }
+          }
 
-          if (!english || translations.length === 0) return;
+          if (splitIndex === -1) {
+            splitIndex = 1;
+          }
+
+          const englishParts = parts.slice(0, splitIndex).map(p => p.toLowerCase());
+          const chineseParts = parts.slice(splitIndex);
+
+          const english = englishParts.join(' ').replace(/\s+/g, ' ').trim();
+          const chineseText = chineseParts.join(' ').trim();
+          if (!english || !chineseText || /[\u4e00-\u9fa5]/.test(english)) return;
+
+          const translations = chineseText.split(/[,，;；、]/).map(t => t.trim()).filter(t => t);
+
+          if (translations.length === 0) return;
 
           const exists = this.library.find(w => w.english === english);
           if (!exists) {
@@ -1706,7 +1728,7 @@
       renderWordList() {
         if (this.library.length === 0) {
           return `
-            <div class="section">
+            <div class="section" id="wordListSection">
               <h2 class="section-title">📖 单词列表</h2>
               <div style="text-align: center; padding: 40px; color: #64748b;">
                 暂无单词，请先添加单词到词库
@@ -1730,9 +1752,9 @@
         const now = Date.now();
 
         return `
-          <div class="section">
+          <div class="section" id="wordListSection">
             <h2 class="section-title">📖 单词列表 (${filteredWords.length}/${this.library.length})</h2>
-            
+
             <input
               type="search"
               id="searchInput"
@@ -2009,12 +2031,8 @@
         this.bindEvent('exportBtn', 'click', () => this.exportLibrary());
         this.bindEvent('importBtn', 'click', () => this.importLibrary());
         this.bindEvent('clearBtn', 'click', () => this.clearLibrary());
-        
-        this.bindEvent('searchInput', 'input', (e) => {
-          this.searchTerm = e.target.value.toLowerCase();
-          this.render();
-          document.getElementById('searchInput')?.focus(); // 保持焦点
-        });
+
+        this.setupSearchInput();
         
         // 练习设置页面
         this.bindEvent('startConfiguredPracticeBtn', 'click', () => this.startConfiguredPractice());
@@ -2064,6 +2082,39 @@
           this.stage = 'library';
           this.render();
         });
+      }
+
+      setupSearchInput(shouldFocus = false) {
+        const searchInput = document.getElementById('searchInput');
+        if (!searchInput) return;
+
+        searchInput.value = this.searchTerm;
+        searchInput.oninput = this.handleSearchInput;
+
+        if (shouldFocus) {
+          const length = searchInput.value.length;
+          searchInput.focus();
+          searchInput.setSelectionRange(length, length);
+        }
+      }
+
+      handleSearchInput(event) {
+        this.updateSearchTerm(event.target.value);
+      }
+
+      updateSearchTerm(value) {
+        this.searchTerm = (value || '').toLowerCase();
+        this.refreshWordList();
+      }
+
+      refreshWordList() {
+        if (this.stage !== 'library') return;
+
+        const section = document.getElementById('wordListSection');
+        if (!section) return;
+
+        section.outerHTML = this.renderWordList();
+        this.setupSearchInput(true);
       }
 
       bindEvent(id, eventType, handler) {
