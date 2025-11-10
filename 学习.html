@@ -1256,7 +1256,16 @@
         const updated = this.fsrs.updateWord(word, 1);
         this.updatedWords[this.currentIndex] = updated;
         this.stats.incorrect += 1;
-        this.handleNext();
+
+        const correctAns = this.currentMode === 2
+          ? word.english
+          : this.currentMode === 3
+            ? `${word.english} ${word.chinese.join('，')}`
+            : word.chinese.join('，');
+
+        this.feedback = { type: 'incorrect', text: `✗ 错误！正确答案：${correctAns}` };
+        this.isAnswered = true;
+        this.render();
       }
 
       // 完成练习
@@ -1891,7 +1900,7 @@
                 ${this.isAnswered ? '下一题 →' : '检查答案'}
               </button>
               ${!this.isAnswered ? `
-                <button class="btn-secondary btn-small" id="skipBtn">跳过</button>
+                <button class="btn-secondary btn-small" id="skipBtn">不会</button>
               ` : ''}
             </div>
             
