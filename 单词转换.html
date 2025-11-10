@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>两行词条 ➜ 单行词表转换器</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --fg:#e5e7eb; --muted:#94a3b8; --acc:#22d3ee; }
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(135deg,#0b1220,#0a0f1a);color:var(--fg);
+         font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    .card{background:rgba(17,24,39,.7);backdrop-filter: blur(8px);border:1px solid #263244;
+          border-radius:16px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+    h1{font-size:20px;margin:0 0 14px}
+    .row{display:grid;gap:12px}
+    @media (min-width:900px){ .row{grid-template-columns:1fr 1fr} }
+    textarea{width:100%;min-height:340px;background:#0b1322;color:var(--fg);
+             border:1px solid #2a3a52;border-radius:12px;padding:12px;resize:vertical}
+    .out{min-height:340px;white-space:pre;overflow:auto}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}
+    .btn{background:linear-gradient(180deg,#1f2937,#111827);color:#e6faff;border:1px solid #304055;
+         padding:8px 14px;border-radius:10px;cursor:pointer}
+    .btn:hover{filter:brightness(1.06)}
+    .btn:active{transform:translateY(1px)}
+    .field{display:flex;gap:8px;align-items:center;color:var(--muted)}
+    input[type=text]{background:#0b1322;color:var(--fg);border:1px solid #2a3a52;border-radius:8px;padding:6px 8px;width:8em}
+    select{background:#0b1322;color:var(--fg);border:1px solid #2a3a52;border-radius:8px;padding:6px 8px}
+    .hint{color:var(--muted);font-size:12px;margin-top:6px}
+    .counter{margin-left:auto;color:var(--muted)}
+    .outbox{background:#0b1322;border:1px solid #2a3a52;border-radius:12px;padding:12px}
+    .footer{color:#6b7280;font-size:12px;margin-top:10px}
+    .pill{display:inline-block;background:#0b1322;border:1px solid #2a3a52;color:#bfefff;
+          padding:2px 8px;border-radius:999px;margin-left:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>两行词条 ➜ 单行词表<span class="pill">一键转换</span></h1>
+      <div class="toolbar">
+        <button class="btn" id="convertBtn">转换</button>
+        <button class="btn" id="copyBtn">复制输出</button>
+        <button class="btn" id="downloadBtn">下载 .txt</button>
+        <span class="field">分隔符：
+          <select id="sepSel">
+            <option value="space">空格</option>
+            <option value="tab">制表符（Tab）</option>
+            <option value="dash">英文破折号（ - ）</option>
+            <option value="custom">自定义</option>
+          </select>
+          <input type="text" id="customSep" placeholder="自定义分隔符" style="display:none">
+        </span>
+        <label class="field">
+          <input type="checkbox" id="trimPunc" checked>
+          去两端标点空白
+        </label>
+        <span class="counter" id="stat">—</span>
+      </div>
+
+      <div class="row">
+        <div>
+          <textarea id="input" spellcheck="false" placeholder="在这里粘贴：英文一行、中文一行、空行分隔…"></textarea>
+          <div class="hint">格式规则：每个词条由两行组成（第一行英文，第二行中文释义），词条之间用空行分隔。</div>
+        </div>
+        <div>
+          <div class="outbox">
+            <pre id="output" class="out"></pre>
+          </div>
+          <div class="footer">小贴士：选择“制表符”导出，粘到 Excel/表格里会自动分两列。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const inputEl = document.getElementById('input');
+    const outputEl = document.getElementById('output');
+    const sepSel = document.getElementById('sepSel');
+    const customSep = document.getElementById('customSep');
+    const trimPunc = document.getElementById('trimPunc');
+    const stat = document.getElementById('stat');
+
+    // 预填示例（你的原始数据）
+    inputEl.value = `exams
+考试，英语考试
+
+easy
+易，容易，很容易
+
+today
+今天，今日
+
+have
+进行，家有，办
+
+an
+一辆，个，一张
+
+these
+这几，这，这些
+
+cups of
+杯
+
+beers
+啤酒`;
+
+    sepSel.addEventListener('change', () => {
+      customSep.style.display = sepSel.value === 'custom' ? 'inline-block' : 'none';
+      render();
+    });
+    [inputEl, customSep, trimPunc].forEach(el => el.addEventListener('input', render));
+
+    document.getElementById('convertBtn').addEventListener('click', render);
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+      const text = outputEl.textContent;
+      if (!text.trim()) return;
+      try { await navigator.clipboard.writeText(text); flash('已复制'); }
+      catch(e){ flash('复制失败，请手动全选复制'); }
+    });
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      const blob = new Blob([outputEl.textContent], {type:'text/plain;charset=utf-8'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'wordlines.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    function getSep() {
+      switch (sepSel.value) {
+        case 'space': return ' ';
+        case 'tab': return '\t';
+        case 'dash': return ' - ';
+        case 'custom': return customSep.value ?? '';
+      }
+    }
+
+    function clean(s) {
+      if (!trimPunc.checked) return s;
+      // 去掉两端空白与常见中英文标点
+      return s.replace(/^[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+|[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+$/g, '')
+              .replace(/\s+/g, ' ');
+    }
+
+    function render() {
+      const raw = inputEl.value.replace(/\r\n/g, '\n');
+      // 以“≥1个空行”分块
+      const blocks = raw.split(/\n\s*\n+/).map(b => b.trim()).filter(Boolean);
+      let lines = [];
+      for (const block of blocks) {
+        const rows = block.split('\n').map(s => s.trim()).filter(Boolean);
+        if (!rows.length) continue;
+        const en = clean(rows[0] || '');
+        const zh = clean(rows.slice(1).join(' ') || '');
+        if (!en && !zh) continue;
+        // 仅有英文或中文也输出，避免漏项
+        const line = zh ? (en + getSep() + zh) : en;
+        lines.push(line);
+      }
+      outputEl.textContent = lines.join('\n');
+      stat.textContent = `共 ${blocks.length} 条 → 输出 ${lines.length} 行`;
+    }
+
+    function flash(msg) {
+      stat.textContent = msg;
+      setTimeout(()=> render(), 1000);
+    }
+
+    // 初次渲染
+    render();
+  </script>
+</body>
+</html>
