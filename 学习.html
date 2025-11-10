@@ -411,6 +411,103 @@
       background: #fef2f2;
     }
 
+    .passage-stage {
+      animation: slideIn 0.4s ease;
+    }
+
+    .passage-content {
+      margin-top: 20px;
+      padding: 24px;
+      border-radius: 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      line-height: 1.7;
+      color: #1e293b;
+    }
+
+    .passage-loading {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #475569;
+      font-size: 16px;
+    }
+
+    .passage-loading::before {
+      content: '';
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 3px solid rgba(102, 126, 234, 0.3);
+      border-top-color: #667eea;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .passage-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .passage-result {
+      margin-top: 16px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .passage-result.success {
+      color: #16a34a;
+    }
+
+    .passage-result.error {
+      color: #dc2626;
+    }
+
+    .passage-error {
+      padding: 18px;
+      border-radius: 12px;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      color: #b91c1c;
+      line-height: 1.6;
+    }
+
+    .passage-blank {
+      display: inline-block;
+      min-width: 120px;
+      padding: 10px 14px;
+      margin: 4px 6px;
+      border-radius: 12px;
+      border: 2px solid #e2e8f0;
+      background: white;
+      font-size: 16px;
+      transition: border-color 0.3s ease, background 0.3s ease;
+    }
+
+    .passage-blank:focus {
+      border-color: #6366f1;
+      outline: none;
+      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+    }
+
+    .passage-blank.correct {
+      border-color: #16a34a;
+      background: #dcfce7;
+    }
+
+    .passage-blank.incorrect {
+      border-color: #dc2626;
+      background: #fee2e2;
+    }
+
     .hint-text {
       text-align: center;
       color: #64748b;
@@ -930,7 +1027,7 @@
         this.fsrs = new FSRS();
         this.library = [];
         this.dueWords = [];
-        this.stage = 'library'; // 'library', 'settings', 'mode', 'practice', 'complete'
+        this.stage = 'library'; // 'library', 'settings', 'passage', 'mode', 'practice', 'complete'
         this.currentMode = 0;
         this.currentIndex = 0;
         this.answer = '';
@@ -949,9 +1046,20 @@
           sort: 'smart',   // 'smart', 'random', 'added', 'newFirst', 'errorFirst'
           quantity: 20
         };
-        
+
+        this.resetPassageState();
+
         this.loadLibrary();
         this.render();
+      }
+
+      resetPassageState() {
+        this.passage = {
+          status: 'idle',
+          html: '',
+          error: null
+        };
+        this.passageRequestSignature = null;
       }
 
       // 从本地存储加载词库
@@ -1090,11 +1198,12 @@
           alert('词库为空！请先添加单词。');
           return;
         }
-        
+
         // 重置为默认“待复习”
         this.practiceSettings.filter = 'due';
         this.practiceSettings.sort = 'smart';
-        
+
+        this.resetPassageState();
         this.stage = 'settings'; // 新增：进入设置阶段
         this.render();
       }
@@ -1106,13 +1215,12 @@
           alert(`暂无${filter === 'new' ? '新' : '收藏的'}单词！`);
           return;
         }
-        
+
         // 使用智能排序，最多20个
-        this.dueWords = this.getSortedWords(words, 'smart').slice(0, 20);
-        this.stage = 'mode';
-        this.render();
+        const selected = this.getSortedWords(words, 'smart').slice(0, 20);
+        this.launchPracticeFlow(selected);
       }
-      
+
       // 新增：根据设置开始练习
       startConfiguredPractice() {
         let filtered = this.getFilteredWords(this.practiceSettings.filter);
@@ -1120,12 +1228,274 @@
           alert('当前筛选条件下没有可练习的单词！');
           return;
         }
-        
+
         let sorted = this.getSortedWords(filtered, this.practiceSettings.sort);
-        
-        this.dueWords = sorted.slice(0, this.practiceSettings.quantity);
+
+        const selected = sorted.slice(0, this.practiceSettings.quantity);
+        this.launchPracticeFlow(selected);
+      }
+
+      launchPracticeFlow(words) {
+        this.dueWords = Array.isArray(words) ? words : [];
+
+        if (this.dueWords.length > 50) {
+          this.enterPassageStage();
+        } else {
+          this.resetPassageState();
+          this.stage = 'mode';
+          this.render();
+        }
+      }
+
+      enterPassageStage() {
+        this.passageRequestSignature = this.dueWords.map(w => w.english).join('|');
+        this.passage = {
+          status: 'loading',
+          html: '',
+          error: null
+        };
+        this.stage = 'passage';
+        this.render();
+        this.loadPassageContent();
+      }
+
+      getDeepSeekApiKey() {
+        const stored = localStorage.getItem('deepseek_api_key');
+        if (stored) return stored;
+        if (typeof window !== 'undefined' && window.DEEPSEEK_API_KEY) {
+          return window.DEEPSEEK_API_KEY;
+        }
+        return '';
+      }
+
+      normalizePassageHtml(raw) {
+        if (!raw) return '';
+        const htmlFence = raw.match(/```html([\s\S]*?)```/i);
+        if (htmlFence) {
+          return htmlFence[1].trim();
+        }
+        const genericFence = raw.match(/```([\s\S]*?)```/);
+        if (genericFence) {
+          return genericFence[1].trim();
+        }
+        return raw.trim();
+      }
+
+      async loadPassageContent() {
+        if (this.stage !== 'passage') return;
+
+        const signature = this.passageRequestSignature;
+        const words = this.dueWords.map(word => `${word.english}：${word.chinese.join('，')}`);
+
+        if (words.length === 0) {
+          this.passage = {
+            status: 'error',
+            html: '',
+            error: '未找到可用于生成短文的单词。'
+          };
+          if (this.stage === 'passage') {
+            this.render();
+          }
+          return;
+        }
+
+        const apiKey = this.getDeepSeekApiKey();
+        if (!apiKey) {
+          this.passage = {
+            status: 'error',
+            html: '',
+            error: '未配置 DeepSeek API Key。请在浏览器控制台执行 localStorage.setItem("deepseek_api_key", "sk-...") 或设置 window.DEEPSEEK_API_KEY 后重试。'
+          };
+          if (this.stage === 'passage') {
+            this.render();
+          }
+          return;
+        }
+
+        const wordList = words.join('\n');
+        const userPrompt = `请根据以下单词生成一段 150 词左右的英文短文填空练习。` +
+          `短文需自然地包含所有单词，并为每个目标词留下填空输入框。` +
+          `输出纯 HTML 片段，不要包含<script>或<style>标签。` +
+          `每个空使用 <input type="text" class="passage-blank" data-answer="正确英文单词">，` +
+          `在短文末尾附上一段 2-3 句的中文提示或总结。` +
+          `以下是单词列表：\n${wordList}`;
+
+        try {
+          const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model: 'deepseek-chat',
+              temperature: 0.7,
+              messages: [
+                {
+                  role: 'system',
+                  content: 'You are an experienced ESL teacher. Generate lively fill-in-the-blank passages using the provided vocabulary. Return clean HTML snippets without additional explanations.'
+                },
+                {
+                  role: 'user',
+                  content: userPrompt
+                }
+              ]
+            })
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`DeepSeek API 请求失败（${response.status}）：${errorText || '未知错误'}`);
+          }
+
+          const data = await response.json();
+          const content = data?.choices?.[0]?.message?.content || '';
+          const html = this.normalizePassageHtml(content);
+
+          if (!html) {
+            throw new Error('未从 DeepSeek 获取到有效的 HTML 内容。');
+          }
+
+          if (this.stage !== 'passage' || this.passageRequestSignature !== signature) {
+            return;
+          }
+
+          this.passage = {
+            status: 'ready',
+            html,
+            error: null
+          };
+          this.render();
+        } catch (error) {
+          console.error('DeepSeek API error:', error);
+
+          if (this.stage !== 'passage' || this.passageRequestSignature !== signature) {
+            return;
+          }
+
+          this.passage = {
+            status: 'error',
+            html: '',
+            error: error?.message || '调用 DeepSeek API 失败，请稍后重试。'
+          };
+          this.render();
+        }
+      }
+
+      retryPassageGeneration() {
+        if (this.stage !== 'passage') return;
+        this.passageRequestSignature = this.dueWords.map(w => w.english).join('|');
+        this.passage = {
+          status: 'loading',
+          html: '',
+          error: null
+        };
+        this.render();
+        this.loadPassageContent();
+      }
+
+      proceedFromPassage() {
+        this.resetPassageState();
         this.stage = 'mode';
         this.render();
+      }
+
+      skipPassageStage() {
+        if (this.passage?.status === 'loading') {
+          const confirmed = confirm('短文仍在生成中，确定要直接进入常规练习吗？');
+          if (!confirmed) {
+            return;
+          }
+        }
+        this.proceedFromPassage();
+      }
+
+      checkPassageAnswers() {
+        const container = document.getElementById('passageDynamicContent');
+        if (!container) {
+          alert('短文尚未生成，请稍后再试或直接继续常规练习。');
+          return;
+        }
+
+        const blanks = Array.from(container.querySelectorAll('.passage-blank'));
+        if (blanks.length === 0) {
+          alert('当前短文不包含可自动检查的填空项，请直接继续常规练习。');
+          return;
+        }
+
+        let total = 0;
+        let correct = 0;
+
+        blanks.forEach(input => {
+          const expected = (input.dataset.answer || '').trim().toLowerCase();
+          const value = (input.value || '').trim().toLowerCase();
+          input.classList.remove('correct', 'incorrect');
+
+          if (!expected) {
+            return;
+          }
+
+          total += 1;
+          if (value === expected) {
+            correct += 1;
+            input.classList.add('correct');
+          } else {
+            input.classList.add('incorrect');
+          }
+        });
+
+        const result = document.getElementById('passageResult');
+        if (result) {
+          result.classList.remove('success', 'error');
+
+          if (total === 0) {
+            result.textContent = '未提供标准答案，请根据语境自行判断。';
+            result.classList.add('error');
+          } else {
+            const accuracy = Math.round((correct / total) * 100);
+            result.textContent = `已检查 ${total} 个空：正确 ${correct} 个，正确率 ${accuracy}% 。`;
+            result.classList.add(accuracy >= 70 ? 'success' : 'error');
+          }
+        }
+      }
+
+      revealPassageAnswers() {
+        const container = document.getElementById('passageDynamicContent');
+        if (!container) {
+          alert('短文尚未生成，请稍后再试或直接继续常规练习。');
+          return;
+        }
+
+        const blanks = Array.from(container.querySelectorAll('.passage-blank'));
+        if (blanks.length === 0) {
+          alert('当前短文没有提供可显示的答案。');
+          return;
+        }
+
+        let revealed = 0;
+
+        blanks.forEach(input => {
+          const expected = input.dataset.answer;
+          input.classList.remove('correct', 'incorrect');
+          if (!expected) {
+            return;
+          }
+
+          if (!input.value) {
+            input.value = expected;
+          }
+          input.classList.add('correct');
+          revealed += 1;
+        });
+
+        const result = document.getElementById('passageResult');
+        if (result) {
+          result.classList.remove('error');
+          result.classList.add('success');
+          result.textContent = revealed > 0
+            ? `已显示 ${revealed} 个参考答案，请理解语境后继续常规练习。`
+            : '当前短文未提供标准答案，请根据语境自行判断。';
+        }
       }
 
       // 选择练习模式
@@ -1290,14 +1660,15 @@
         });
         this.saveLibrary();
         
-        this.finalStats = { 
-          ...this.stats, 
+        this.finalStats = {
+          ...this.stats,
           total: this.updatedWords.length,
-          accuracy: this.updatedWords.length > 0 
+          accuracy: this.updatedWords.length > 0
             ? Math.round((this.stats.correct / this.updatedWords.length) * 100)
             : 0
         };
-        
+
+        this.resetPassageState();
         this.stage = 'complete';
         this.render();
       }
@@ -1537,6 +1908,7 @@
         switch (this.stage) {
           case 'library': return this.renderLibrary();
           case 'settings': return this.renderSettings(); // 新增
+          case 'passage': return this.renderPassage();
           case 'mode': return this.renderModeSelect();
           case 'practice': return this.renderPractice();
           case 'complete': return this.renderComplete();
@@ -1720,6 +2092,50 @@
               <button class="btn-secondary" id="backToLibraryBtn">
                 ← 返回词库
               </button>
+            </div>
+          </div>
+        `;
+      }
+
+      renderPassage() {
+        const status = this.passage?.status || 'idle';
+        const normalizedStatus = status === 'idle' ? 'loading' : status;
+        const errorMessage = (this.passage?.error || '').replace(/\n/g, '<br/>');
+        const wordCount = this.dueWords.length;
+
+        const content = normalizedStatus === 'ready'
+          ? `<div id="passageDynamicContent">${this.passage.html}</div>`
+          : normalizedStatus === 'error'
+            ? `<div class="passage-error">${errorMessage || '调用 DeepSeek 失败，请稍后重试。'}</div>`
+            : `<div class="passage-loading">正在基于 ${wordCount} 个单词生成短文，请稍候...</div>`;
+
+        const actions = [];
+        if (normalizedStatus === 'ready') {
+          actions.push(`
+            <button class="btn-primary" id="passageCheckBtn">✅ 检查答案</button>
+            <button class="btn-secondary" id="passageRevealBtn">💡 显示参考答案</button>
+          `);
+        }
+        if (normalizedStatus === 'error') {
+          actions.push(`
+            <button class="btn-primary" id="passageRetryBtn">🔄 重新生成</button>
+          `);
+        }
+
+        return `
+          <div class="passage-stage">
+            <h2 class="section-title">📝 AI 短文填空热身</h2>
+            <p class="section-desc">
+              本次选择了 <strong>${wordCount}</strong> 个单词，我们先通过 AI 生成的短文熟悉语境，随后进入常规练习。
+            </p>
+            <div class="passage-content" id="passageContent">
+              ${content}
+            </div>
+            ${actions.length > 0 ? `<div class="passage-actions">${actions.join('')}</div>` : ''}
+            <div id="passageResult" class="passage-result"></div>
+            <div class="button-group">
+              <button class="btn-primary" id="passageContinueBtn" ${normalizedStatus === 'loading' ? 'disabled' : ''}>➡️ 继续常规练习</button>
+              <button class="btn-secondary" id="passageSkipBtn">${normalizedStatus === 'loading' ? '⏭️ 跳过等待，直接练习' : '⏭️ 跳过短文，直接练习'}</button>
             </div>
           </div>
         `;
@@ -2041,6 +2457,13 @@
           this.render();
         });
         this.bindEvent('quantitySlider', 'input', (e) => this.updateQuantity(e.target.value));
+
+        // 短文阶段
+        this.bindEvent('passageContinueBtn', 'click', () => this.proceedFromPassage());
+        this.bindEvent('passageSkipBtn', 'click', () => this.skipPassageStage());
+        this.bindEvent('passageCheckBtn', 'click', () => this.checkPassageAnswers());
+        this.bindEvent('passageRevealBtn', 'click', () => this.revealPassageAnswers());
+        this.bindEvent('passageRetryBtn', 'click', () => this.retryPassageGeneration());
 
         // 模式选择
         document.querySelectorAll('.mode-card').forEach(card => {
