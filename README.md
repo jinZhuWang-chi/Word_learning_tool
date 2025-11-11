@@ -1,4 +1,3 @@
-````markdown
 # 🚀 Smart Vocabulary Trainer
 ### Powered by FSRS Memory Algorithm
 ### 智能单词学习系统 · 基于 FSRS 智能记忆算法
@@ -42,7 +41,7 @@ designed for efficient English word memorization, adaptive review scheduling, an
    ```bash
    git clone [https://github.com/jinzhuwang-chi/Word_learning_tool.git](https://github.com/jinzhuwang-chi/Word_learning_tool.git)
    cd Word_learning_tool
-````
+   ```
 
 2.  Open `index.html` in your browser 打开 `index.html` 文件即可运行。
       * 无需安装、无需构建，纯前端项目。
@@ -120,3 +119,4 @@ MIT License © 2025 JinZhu Wang
 
 ```
 ```
+
