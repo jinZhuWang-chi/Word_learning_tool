@@ -1,88 +1,477 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <title>两行词条 ➜ 单行词表转换器</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>词形转换工具</title>
   <style>
-    :root { --bg:#0f172a; --card:#111827; --fg:#e5e7eb; --muted:#94a3b8; --acc:#22d3ee; }
-    html,body{height:100%}
-    body{margin:0;background:linear-gradient(135deg,#0b1220,#0a0f1a);color:var(--fg);
-         font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
-    .card{background:rgba(17,24,39,.7);backdrop-filter: blur(8px);border:1px solid #263244;
-          border-radius:16px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
-    h1{font-size:20px;margin:0 0 14px}
-    .row{display:grid;gap:12px}
-    @media (min-width:900px){ .row{grid-template-columns:1fr 1fr} }
-    textarea{width:100%;min-height:340px;background:#0b1322;color:var(--fg);
-             border:1px solid #2a3a52;border-radius:12px;padding:12px;resize:vertical}
-    .out{min-height:340px;white-space:pre;overflow:auto}
-    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}
-    .btn{background:linear-gradient(180deg,#1f2937,#111827);color:#e6faff;border:1px solid #304055;
-         padding:8px 14px;border-radius:10px;cursor:pointer}
-    .btn:hover{filter:brightness(1.06)}
-    .btn:active{transform:translateY(1px)}
-    .field{display:flex;gap:8px;align-items:center;color:var(--muted)}
-    input[type=text]{background:#0b1322;color:var(--fg);border:1px solid #2a3a52;border-radius:8px;padding:6px 8px;width:8em}
-    select{background:#0b1322;color:var(--fg);border:1px solid #2a3a52;border-radius:8px;padding:6px 8px}
-    .hint{color:var(--muted);font-size:12px;margin-top:6px}
-    .counter{margin-left:auto;color:var(--muted)}
-    .outbox{background:#0b1322;border:1px solid #2a3a52;border-radius:12px;padding:12px}
-    .footer{color:#6b7280;font-size:12px;margin-top:10px}
-    .pill{display:inline-block;background:#0b1322;border:1px solid #2a3a52;color:#bfefff;
-          padding:2px 8px;border-radius:999px;margin-left:8px}
+    :root {
+      color-scheme: light;
+      --gradient: linear-gradient(160deg, #4e54c8 0%, #8f94fb 100%);
+      --outer-gap: clamp(12px, 4dvh, 32px);
+      --shell-width: min(100%, 420px);
+      --shell-height: calc(100dvh - var(--outer-gap) * 2);
+      --surface: #ffffff;
+      --surface-muted: rgba(255, 255, 255, 0.9);
+      --surface-soft: rgba(255, 255, 255, 0.75);
+      --text: #111827;
+      --text-muted: #6b7280;
+      --primary: #6366f1;
+      --accent: #14b8a6;
+      --danger: #ef4444;
+      --radius-lg: 26px;
+      --radius-md: 18px;
+      --shadow-lg: 0 28px 52px rgba(17, 24, 39, 0.28);
+      --shadow-md: 0 16px 28px rgba(79, 70, 229, 0.18);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100dvh;
+      background: var(--gradient);
+      font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      padding: var(--outer-gap);
+      color: var(--text);
+    }
+
+    .mobile-shell {
+      width: var(--shell-width);
+      height: var(--shell-height);
+      max-height: var(--shell-height);
+      background: var(--surface);
+      border-radius: clamp(0px, 2vw, 36px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: var(--shadow-lg);
+      position: relative;
+      isolation: isolate;
+    }
+
+    .mobile-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.32), transparent 55%),
+                  radial-gradient(circle at 80% 0%, rgba(79, 70, 229, 0.18), transparent 60%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    header {
+      padding: 18px 22px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .title-row h1 {
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .mode-toggle {
+      display: inline-flex;
+      align-items: center;
+      background: var(--surface-soft);
+      padding: 6px;
+      border-radius: 999px;
+      box-shadow: var(--shadow-md);
+      gap: 6px;
+    }
+
+    .mode-toggle button {
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      padding: 6px 10px;
+      border-radius: 999px;
+    }
+
+    .mode-toggle button.active {
+      background: #fff;
+      color: var(--primary);
+      box-shadow: 0 4px 10px rgba(99, 102, 241, 0.18);
+    }
+
+    main {
+      flex: 1;
+      background: rgba(243, 244, 255, 0.8);
+      border-radius: 28px 28px 0 0;
+      padding: 16px 18px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .panel-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .panel {
+      flex: 1;
+      min-height: 0;
+      background: var(--surface-muted);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .panel-header h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .chip-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(99, 102, 241, 0.12);
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .chip[role="button"] {
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+
+    .chip[role="button"]:active {
+      transform: scale(0.97);
+    }
+
+    .tool-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .tool-field {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.85);
+      padding: 6px 10px;
+      border-radius: 999px;
+      box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.12);
+    }
+
+    select {
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      color: var(--primary);
+      font-weight: 600;
+      appearance: none;
+    }
+
+    .tool-field input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--primary);
+    }
+
+    .tool-field.tool-custom {
+      display: none;
+    }
+
+    .tool-field.tool-custom.visible {
+      display: inline-flex;
+    }
+
+    .tool-field.tool-custom input {
+      width: 72px;
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--primary);
+    }
+
+    textarea {
+      flex: 1;
+      min-height: 0;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.88);
+      font-size: 14px;
+      line-height: 1.5;
+      font-family: "Menlo", "SFMono-Regular", "Consolas", monospace;
+      resize: none;
+      box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.12);
+    }
+
+    textarea[readonly] {
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    textarea:focus {
+      outline: 2px solid rgba(99, 102, 241, 0.35);
+      outline-offset: 2px;
+    }
+
+    .action-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .action-row button,
+    .action-row a {
+      flex: 1;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      text-decoration: none;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      color: #fff;
+      background: var(--primary);
+      box-shadow: 0 14px 24px rgba(99, 102, 241, 0.2);
+    }
+
+    .action-row button.secondary,
+    .action-row a.secondary {
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--primary);
+      box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
+    }
+
+    .action-row .ghost {
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--text-muted);
+      box-shadow: none;
+    }
+
+    .stat-indicator {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: right;
+    }
+
+    footer {
+      padding: 12px 22px 20px;
+      background: rgba(255, 255, 255, 0.92);
+      display: flex;
+      gap: 16px;
+      box-shadow: 0 -18px 32px rgba(76, 81, 191, 0.18);
+    }
+
+    .footer-button {
+      flex: 1;
+      border: none;
+      border-radius: var(--radius-md);
+      background: rgba(99, 102, 241, 0.12);
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 12px;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .footer-button.primary {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      box-shadow: 0 18px 28px rgba(99, 102, 241, 0.28);
+    }
+
+    @media (min-width: 768px) {
+      :root {
+        --shell-width: min(100%, 900px);
+      }
+
+      .mobile-shell {
+        flex-direction: row;
+      }
+
+      header {
+        flex: 0 0 300px;
+        border-right: 1px solid rgba(148, 163, 184, 0.15);
+        padding: 42px 32px;
+        justify-content: center;
+      }
+
+      main {
+        flex: 1;
+        border-radius: 0;
+        padding: 36px 40px 24px;
+        background: linear-gradient(120deg, rgba(236, 240, 255, 0.9), rgba(255, 255, 255, 0.7));
+      }
+
+      main .panel-wrapper {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: 1fr;
+        gap: 24px;
+        height: 100%;
+      }
+
+      main .panel-wrapper .panel {
+        height: 100%;
+      }
+
+      footer {
+        position: absolute;
+        bottom: 32px;
+        right: 32px;
+        left: calc(300px + 32px);
+        border-radius: 18px;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>两行词条 ➜ 单行词表<span class="pill">一键转换</span></h1>
-      <div class="toolbar">
-        <button class="btn" id="convertBtn">转换</button>
-        <button class="btn" id="copyBtn">复制输出</button>
-        <button class="btn" id="downloadBtn">下载 .txt</button>
-        <span class="field">分隔符：
-          <select id="sepSel">
-            <option value="space">空格</option>
-            <option value="tab">制表符（Tab）</option>
-            <option value="dash">英文破折号（ - ）</option>
-            <option value="custom">自定义</option>
-          </select>
-          <input type="text" id="customSep" placeholder="自定义分隔符" style="display:none">
-        </span>
-        <label class="field">
-          <input type="checkbox" id="trimPunc" checked>
-          去两端标点空白
-        </label>
-        <span class="counter" id="stat">—</span>
+  <div class="mobile-shell">
+    <header>
+      <div class="top-bar">
+        <span>09:41</span>
+        <span>充电中 · 78%</span>
       </div>
-
-      <div class="row">
-        <div>
-          <textarea id="input" spellcheck="false" placeholder="在这里粘贴：英文一行、中文一行、空行分隔…"></textarea>
-          <div class="hint">格式规则：每个词条由两行组成（第一行英文，第二行中文释义），词条之间用空行分隔。</div>
+      <div class="title-row">
+        <h1>词形转换</h1>
+        <div class="mode-toggle">
+          <button type="button" class="active">自动</button>
+          <button type="button">手动</button>
         </div>
-        <div>
-          <div class="outbox">
-            <pre id="output" class="out"></pre>
+      </div>
+      <p style="font-size: 13px; line-height: 1.5; color: var(--text-muted);">
+        一次输入一个或多组单词，系统将自动识别并生成各种词形，便于在手机上快速核对与复制。
+      </p>
+    </header>
+    <main>
+      <div class="panel-wrapper">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>原始单词</h2>
+            <span>支持中英混合</span>
           </div>
-          <div class="footer">小贴士：选择“制表符”导出，粘到 Excel/表格里会自动分两列。</div>
-        </div>
+          <div class="chip-row">
+            <span class="chip">导入课表</span>
+            <span class="chip" id="pasteChip" role="button" tabindex="0">粘贴剪贴板</span>
+          </div>
+          <div class="tool-row">
+            <label class="tool-field">
+              <span>分隔符</span>
+              <select id="sepSel">
+                <option value="space">空格</option>
+                <option value="tab">制表符</option>
+                <option value="dash">破折号</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <label class="tool-field tool-custom" id="customField">
+              <span>自定义</span>
+              <input id="customSep" type="text" placeholder="符号" />
+            </label>
+            <label class="tool-field">
+              <input type="checkbox" id="trimPunc" checked />
+              <span>去首尾标点</span>
+            </label>
+          </div>
+          <textarea id="sourceText" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="none" placeholder="在这里粘贴：英文一行、中文一行、空行分隔…"></textarea>
+          <div class="action-row">
+            <button type="button" class="secondary" id="clearBtn">清空</button>
+            <button type="button" class="ghost" id="copyBtn">复制结果</button>
+            <button type="button" id="convertBtn">分析</button>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-header">
+            <h2>转换结果</h2>
+            <span>长按即可复制</span>
+          </div>
+          <textarea id="resultText" readonly spellcheck="false" placeholder="名词：achievement\n动词：achieves / achieved\n形容词：achievable"></textarea>
+          <div class="stat-indicator" id="stat">—</div>
+          <div class="action-row">
+            <a href="#" class="secondary" id="downloadBtn">导出表格</a>
+            <a href="#" id="sendBtn">发送到练习</a>
+          </div>
+        </section>
       </div>
-    </div>
+    </main>
+    <footer>
+      <button class="footer-button" type="button">📁 历史记录</button>
+      <button class="footer-button primary" type="button">⚡ 智能纠错</button>
+    </footer>
   </div>
 
   <script>
-    const inputEl = document.getElementById('input');
-    const outputEl = document.getElementById('output');
+    const sourceText = document.getElementById('sourceText');
+    const resultText = document.getElementById('resultText');
+    const convertBtn = document.getElementById('convertBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const sendBtn = document.getElementById('sendBtn');
     const sepSel = document.getElementById('sepSel');
+    const customField = document.getElementById('customField');
     const customSep = document.getElementById('customSep');
     const trimPunc = document.getElementById('trimPunc');
     const stat = document.getElementById('stat');
+    const pasteChip = document.getElementById('pasteChip');
 
-    // 预填示例（你的原始数据）
-    inputEl.value = `exams
+    const sample = `exams
 考试，英语考试
 
 easy
@@ -106,70 +495,147 @@ cups of
 beers
 啤酒`;
 
-    sepSel.addEventListener('change', () => {
-      customSep.style.display = sepSel.value === 'custom' ? 'inline-block' : 'none';
-      render();
-    });
-    [inputEl, customSep, trimPunc].forEach(el => el.addEventListener('input', render));
+    sourceText.value = sample;
 
-    document.getElementById('convertBtn').addEventListener('click', render);
-    document.getElementById('copyBtn').addEventListener('click', async () => {
-      const text = outputEl.textContent;
-      if (!text.trim()) return;
-      try { await navigator.clipboard.writeText(text); flash('已复制'); }
-      catch(e){ flash('复制失败，请手动全选复制'); }
-    });
-    document.getElementById('downloadBtn').addEventListener('click', () => {
-      const blob = new Blob([outputEl.textContent], {type:'text/plain;charset=utf-8'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'wordlines.txt';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    });
+    function toggleCustomInput() {
+      const isCustom = sepSel.value === 'custom';
+      customField.classList.toggle('visible', isCustom);
+    }
 
-    function getSep() {
+    function getSeparator() {
       switch (sepSel.value) {
-        case 'space': return ' ';
-        case 'tab': return '\t';
-        case 'dash': return ' - ';
-        case 'custom': return customSep.value ?? '';
+        case 'space':
+          return ' ';
+        case 'tab':
+          return '\t';
+        case 'dash':
+          return ' - ';
+        case 'custom':
+          return customSep.value || '';
+        default:
+          return ' ';
       }
     }
 
-    function clean(s) {
-      if (!trimPunc.checked) return s;
-      // 去掉两端空白与常见中英文标点
-      return s.replace(/^[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+|[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+$/g, '')
-              .replace(/\s+/g, ' ');
+    function clean(str) {
+      if (!trimPunc.checked) return str;
+      return str
+        .replace(/^[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+|[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+$/g, '')
+        .replace(/\s+/g, ' ');
     }
 
-    function render() {
-      const raw = inputEl.value.replace(/\r\n/g, '\n');
-      // 以“≥1个空行”分块
+    function convert() {
+      const raw = sourceText.value.replace(/\r\n/g, '\n');
       const blocks = raw.split(/\n\s*\n+/).map(b => b.trim()).filter(Boolean);
-      let lines = [];
+      const lines = [];
+
       for (const block of blocks) {
         const rows = block.split('\n').map(s => s.trim()).filter(Boolean);
         if (!rows.length) continue;
         const en = clean(rows[0] || '');
         const zh = clean(rows.slice(1).join(' ') || '');
         if (!en && !zh) continue;
-        // 仅有英文或中文也输出，避免漏项
-        const line = zh ? (en + getSep() + zh) : en;
-        lines.push(line);
+        lines.push(zh ? `${en}${getSeparator()}${zh}` : en);
       }
-      outputEl.textContent = lines.join('\n');
-      stat.textContent = `共 ${blocks.length} 条 → 输出 ${lines.length} 行`;
+
+      resultText.value = lines.join('\n');
+      stat.textContent = blocks.length ? `共 ${blocks.length} 条 → 输出 ${lines.length} 行` : '—';
     }
 
-    function flash(msg) {
-      stat.textContent = msg;
-      setTimeout(()=> render(), 1000);
+    function flash(message, hold = 1000) {
+      const last = stat.textContent;
+      stat.textContent = message;
+      if (hold) {
+        setTimeout(() => {
+          if (stat.textContent === message) {
+            stat.textContent = last;
+          }
+        }, hold);
+      }
     }
 
-    // 初次渲染
-    render();
+    convertBtn.addEventListener('click', convert);
+    [sourceText, customSep].forEach(el => el.addEventListener('input', convert));
+    trimPunc.addEventListener('change', convert);
+    sepSel.addEventListener('change', () => {
+      toggleCustomInput();
+      convert();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      sourceText.value = '';
+      resultText.value = '';
+      stat.textContent = '—';
+      sourceText.focus();
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      const text = resultText.value.trim();
+      if (!text) {
+        flash('没有可复制的内容', 1200);
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        flash('已复制到剪贴板');
+      } catch (err) {
+        flash('复制失败，请手动选择', 1500);
+      }
+    });
+
+    downloadBtn.addEventListener('click', evt => {
+      evt.preventDefault();
+      if (!resultText.value.trim()) {
+        flash('请先生成结果', 1200);
+        return;
+      }
+      const blob = new Blob([resultText.value], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'wordlines.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      flash('TXT 已导出');
+    });
+
+    sendBtn.addEventListener('click', evt => {
+      evt.preventDefault();
+      if (!resultText.value.trim()) {
+        flash('请先生成结果', 1200);
+        return;
+      }
+      flash('已推送到练习', 1500);
+    });
+
+    async function handlePaste() {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        flash('当前浏览器不支持一键粘贴', 1500);
+        return;
+      }
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          sourceText.value = text;
+          convert();
+          flash('已从剪贴板粘贴');
+        } else {
+          flash('剪贴板为空', 1200);
+        }
+      } catch (err) {
+        flash('读取剪贴板失败', 1500);
+      }
+    }
+
+    pasteChip.addEventListener('click', handlePaste);
+    pasteChip.addEventListener('keydown', evt => {
+      if (evt.key === 'Enter' || evt.key === ' ') {
+        evt.preventDefault();
+        handlePaste();
+      }
+    });
+
+    toggleCustomInput();
+    convert();
   </script>
 </body>
 </html>
