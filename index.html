@@ -1828,11 +1828,18 @@
         const expected = this.normalizeChineseList(correctList);
         const provided = this.parseChineseAnswer(answerText);
         if (expected.length === 0 || provided.length === 0) return false;
-        if (expected.length !== provided.length) return false;
+        if (provided.length > expected.length) return false;
 
-        const expectedSorted = [...expected].sort();
-        const providedSorted = [...provided].sort();
-        return expectedSorted.every((val, idx) => val === providedSorted[idx]);
+        const remaining = expected.reduce((map, item) => {
+          map[item] = (map[item] || 0) + 1;
+          return map;
+        }, {});
+
+        return provided.every(item => {
+          if (!remaining[item]) return false;
+          remaining[item] -= 1;
+          return true;
+        });
       }
 
       checkAnswer() {
@@ -2578,13 +2585,13 @@
 
         if (this.currentMode === 1) {
           promptText = word.english;
-          placeholder = '输入中文翻译（多个释义请用逗号隔开）';
+          placeholder = '输入中文翻译（可填一个或多个释义，用逗号隔开）';
           showAudioBtn = true;
         } else if (this.currentMode === 2) {
           promptText = word.chinese.join('，');
           placeholder = '输入英文单词';
         } else if (this.currentMode === 3) {
-          placeholder = '格式：英文单词 中文翻译（多个释义请用逗号隔开）';
+          placeholder = '格式：英文单词 中文翻译（可填一个或多个释义，用逗号隔开）';
           showAudioBtn = true;
           showPrompt = false;
         }
