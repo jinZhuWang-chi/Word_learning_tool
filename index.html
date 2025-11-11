@@ -1767,7 +1767,7 @@
           console.warn('语音功能不可用');
           return;
         }
-        
+
         try {
           window.speechSynthesis.cancel();
           const utter = new SpeechSynthesisUtterance(word.english);
@@ -1775,15 +1775,64 @@
           utter.rate = 0.85;
           utter.pitch = 1.0;
           utter.volume = 1.0;
-          
+
           utter.onerror = (e) => {
             console.error('Speech error:', e);
           };
-          
+
           window.speechSynthesis.speak(utter);
         } catch (e) {
           console.error('Speech error:', e);
         }
+      }
+
+      normalizeEnglishText(text) {
+        return (text || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9'\-\s]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      normalizeChineseEntry(text) {
+        return (text || '')
+          .toLowerCase()
+          .replace(/\s+/g, '')
+          .replace(/[“”"']/g, '')
+          .replace(/（/g, '(')
+          .replace(/）/g, ')')
+          .trim();
+      }
+
+      normalizeChineseList(list) {
+        if (!Array.isArray(list)) return [];
+        return list
+          .map(item => this.normalizeChineseEntry(item))
+          .filter(Boolean);
+      }
+
+      parseChineseAnswer(text) {
+        if (!text) return [];
+        const replaced = text
+          .replace(/[、;；]/g, '，');
+        const segments = replaced
+          .split(/[，,]/)
+          .map(item => item.trim())
+          .filter(Boolean);
+        return segments
+          .map(item => this.normalizeChineseEntry(item))
+          .filter(Boolean);
+      }
+
+      isChineseAnswerExact(correctList, answerText) {
+        const expected = this.normalizeChineseList(correctList);
+        const provided = this.parseChineseAnswer(answerText);
+        if (expected.length === 0 || provided.length === 0) return false;
+        if (expected.length !== provided.length) return false;
+
+        const expectedSorted = [...expected].sort();
+        const providedSorted = [...provided].sort();
+        return expectedSorted.every((val, idx) => val === providedSorted[idx]);
       }
 
       checkAnswer() {
@@ -1808,28 +1857,31 @@
         };
 
         if (this.currentMode === 1) {
-          isCorrect = word.chinese.some(t => {
-            const normalized = text.toLowerCase().replace(/\s+/g, '');
-            const target = t.toLowerCase().replace(/\s+/g, '');
-            return normalized.includes(target) || target.includes(normalized);
-          });
+          isCorrect = this.isChineseAnswerExact(word.chinese, text);
         }
         else if (this.currentMode === 2) {
           const normalized = text.toLowerCase().trim();
           isCorrect = normalized === word.english.toLowerCase();
         }
         else if (this.currentMode === 3) {
-          const parts = text.split(/\s+/);
-          if (parts.length >= 2) {
-            const answerEn = parts[0].toLowerCase().trim();
-            const answerCn = parts.slice(1).join(' ').toLowerCase().replace(/\s+/g, '');
-            
-            const englishCorrect = answerEn === word.english.toLowerCase();
-            const chineseCorrect = word.chinese.some(t => {
-              const target = t.toLowerCase().replace(/\s+/g, '');
-              return answerCn.includes(target) || target.includes(answerCn);
-            });
-            
+          const normalizedEnglishTarget = this.normalizeEnglishText(word.english);
+          const tokenCountRaw = String(word.english || '')
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .length;
+          const tokenCount = tokenCountRaw > 0
+            ? tokenCountRaw
+            : (normalizedEnglishTarget ? normalizedEnglishTarget.split(' ').filter(Boolean).length : 0);
+          const inputTokens = text.split(/\s+/).filter(Boolean);
+
+          if (tokenCount > 0 && inputTokens.length > tokenCount) {
+            const answerEnRaw = inputTokens.slice(0, tokenCount).join(' ');
+            const answerCnRaw = inputTokens.slice(tokenCount).join(' ');
+
+            const englishCorrect = this.normalizeEnglishText(answerEnRaw) === normalizedEnglishTarget;
+            const chineseCorrect = this.isChineseAnswerExact(word.chinese, answerCnRaw);
+
             isCorrect = englishCorrect && chineseCorrect;
           }
         }
@@ -2526,13 +2578,13 @@
 
         if (this.currentMode === 1) {
           promptText = word.english;
-          placeholder = '输入中文翻译';
+          placeholder = '输入中文翻译（多个释义请用逗号隔开）';
           showAudioBtn = true;
         } else if (this.currentMode === 2) {
           promptText = word.chinese.join('，');
           placeholder = '输入英文单词';
         } else if (this.currentMode === 3) {
-          placeholder = '格式：英文单词 中文翻译';
+          placeholder = '格式：英文单词 中文翻译（多个释义请用逗号隔开）';
           showAudioBtn = true;
           showPrompt = false;
         }
