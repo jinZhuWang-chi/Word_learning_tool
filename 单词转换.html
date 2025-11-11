@@ -1,9 +1,9 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <title>两行词条 ➜ 单行词表转换器</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>词形转换工具</title>
   <style>
     :root {
       color-scheme: dark;
@@ -210,54 +210,96 @@
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>两行词条 ➜ 单行词表<span class="pill">一键转换</span></h1>
-      <div class="toolbar">
-        <button class="btn" id="convertBtn">转换</button>
-        <button class="btn" id="copyBtn">复制输出</button>
-        <button class="btn" id="downloadBtn">下载 .txt</button>
-        <span class="field">分隔符：
-          <select id="sepSel">
-            <option value="space">空格</option>
-            <option value="tab">制表符（Tab）</option>
-            <option value="dash">英文破折号（ - ）</option>
-            <option value="custom">自定义</option>
-          </select>
-          <input type="text" id="customSep" placeholder="自定义分隔符" style="display:none">
-        </span>
-        <label class="field">
-          <input type="checkbox" id="trimPunc" checked>
-          去两端标点空白
-        </label>
-        <span class="counter" id="stat">—</span>
+  <div class="mobile-shell">
+    <header>
+      <div class="top-bar">
+        <span>09:41</span>
+        <span>充电中 · 78%</span>
       </div>
-
-      <div class="row">
-        <div>
-          <textarea id="input" spellcheck="false" placeholder="在这里粘贴：英文一行、中文一行、空行分隔…"></textarea>
-          <div class="hint">格式规则：每个词条由两行组成（第一行英文，第二行中文释义），词条之间用空行分隔。</div>
+      <div class="title-row">
+        <h1>词形转换</h1>
+        <div class="mode-toggle">
+          <button type="button" class="active">自动</button>
+          <button type="button">手动</button>
         </div>
-        <div>
-          <div class="outbox">
-            <pre id="output" class="out"></pre>
+      </div>
+      <p style="font-size: 13px; line-height: 1.5; color: var(--text-muted);">
+        一次输入一个或多组单词，系统将自动识别并生成各种词形，便于在手机上快速核对与复制。
+      </p>
+    </header>
+    <main>
+      <div class="panel-wrapper">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>原始单词</h2>
+            <span>支持中英混合</span>
           </div>
-          <div class="footer">小贴士：选择“制表符”导出，粘到 Excel/表格里会自动分两列。</div>
-        </div>
+          <div class="chip-row">
+            <span class="chip">导入课表</span>
+            <span class="chip" id="pasteChip" role="button" tabindex="0">粘贴剪贴板</span>
+          </div>
+          <div class="tool-row">
+            <label class="tool-field">
+              <span>分隔符</span>
+              <select id="sepSel">
+                <option value="space">空格</option>
+                <option value="tab">制表符</option>
+                <option value="dash">破折号</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <label class="tool-field tool-custom" id="customField">
+              <span>自定义</span>
+              <input id="customSep" type="text" placeholder="符号" />
+            </label>
+            <label class="tool-field">
+              <input type="checkbox" id="trimPunc" checked />
+              <span>去首尾标点</span>
+            </label>
+          </div>
+          <textarea id="sourceText" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="none" placeholder="在这里粘贴：英文一行、中文一行、空行分隔…"></textarea>
+          <div class="action-row">
+            <button type="button" class="secondary" id="clearBtn">清空</button>
+            <button type="button" class="ghost" id="copyBtn">复制结果</button>
+            <button type="button" id="convertBtn">分析</button>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-header">
+            <h2>转换结果</h2>
+            <span>长按即可复制</span>
+          </div>
+          <textarea id="resultText" readonly spellcheck="false" placeholder="名词：achievement\n动词：achieves / achieved\n形容词：achievable"></textarea>
+          <div class="stat-indicator" id="stat">—</div>
+          <div class="action-row">
+            <a href="#" class="secondary" id="downloadBtn">导出表格</a>
+            <a href="#" id="sendBtn">发送到练习</a>
+          </div>
+        </section>
       </div>
-    </div>
+    </main>
+    <footer>
+      <button class="footer-button" type="button">📁 历史记录</button>
+      <button class="footer-button primary" type="button">⚡ 智能纠错</button>
+    </footer>
   </div>
 
   <script>
-    const inputEl = document.getElementById('input');
-    const outputEl = document.getElementById('output');
+    const sourceText = document.getElementById('sourceText');
+    const resultText = document.getElementById('resultText');
+    const convertBtn = document.getElementById('convertBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const sendBtn = document.getElementById('sendBtn');
     const sepSel = document.getElementById('sepSel');
+    const customField = document.getElementById('customField');
     const customSep = document.getElementById('customSep');
     const trimPunc = document.getElementById('trimPunc');
     const stat = document.getElementById('stat');
+    const pasteChip = document.getElementById('pasteChip');
 
-    // 预填示例（你的原始数据）
-    inputEl.value = `exams
+    const sample = `exams
 考试，英语考试
 
 easy
@@ -281,70 +323,147 @@ cups of
 beers
 啤酒`;
 
-    sepSel.addEventListener('change', () => {
-      customSep.style.display = sepSel.value === 'custom' ? 'inline-block' : 'none';
-      render();
-    });
-    [inputEl, customSep, trimPunc].forEach(el => el.addEventListener('input', render));
+    sourceText.value = sample;
 
-    document.getElementById('convertBtn').addEventListener('click', render);
-    document.getElementById('copyBtn').addEventListener('click', async () => {
-      const text = outputEl.textContent;
-      if (!text.trim()) return;
-      try { await navigator.clipboard.writeText(text); flash('已复制'); }
-      catch(e){ flash('复制失败，请手动全选复制'); }
-    });
-    document.getElementById('downloadBtn').addEventListener('click', () => {
-      const blob = new Blob([outputEl.textContent], {type:'text/plain;charset=utf-8'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'wordlines.txt';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    });
+    function toggleCustomInput() {
+      const isCustom = sepSel.value === 'custom';
+      customField.classList.toggle('visible', isCustom);
+    }
 
-    function getSep() {
+    function getSeparator() {
       switch (sepSel.value) {
-        case 'space': return ' ';
-        case 'tab': return '\t';
-        case 'dash': return ' - ';
-        case 'custom': return customSep.value ?? '';
+        case 'space':
+          return ' ';
+        case 'tab':
+          return '\t';
+        case 'dash':
+          return ' - ';
+        case 'custom':
+          return customSep.value || '';
+        default:
+          return ' ';
       }
     }
 
-    function clean(s) {
-      if (!trimPunc.checked) return s;
-      // 去掉两端空白与常见中英文标点
-      return s.replace(/^[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+|[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+$/g, '')
-              .replace(/\s+/g, ' ');
+    function clean(str) {
+      if (!trimPunc.checked) return str;
+      return str
+        .replace(/^[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+|[\s、，。；;：:、,.·—\-~（）()【】\[\]「」『』"'“”‘’]+$/g, '')
+        .replace(/\s+/g, ' ');
     }
 
-    function render() {
-      const raw = inputEl.value.replace(/\r\n/g, '\n');
-      // 以“≥1个空行”分块
+    function convert() {
+      const raw = sourceText.value.replace(/\r\n/g, '\n');
       const blocks = raw.split(/\n\s*\n+/).map(b => b.trim()).filter(Boolean);
-      let lines = [];
+      const lines = [];
+
       for (const block of blocks) {
         const rows = block.split('\n').map(s => s.trim()).filter(Boolean);
         if (!rows.length) continue;
         const en = clean(rows[0] || '');
         const zh = clean(rows.slice(1).join(' ') || '');
         if (!en && !zh) continue;
-        // 仅有英文或中文也输出，避免漏项
-        const line = zh ? (en + getSep() + zh) : en;
-        lines.push(line);
+        lines.push(zh ? `${en}${getSeparator()}${zh}` : en);
       }
-      outputEl.textContent = lines.join('\n');
-      stat.textContent = `共 ${blocks.length} 条 → 输出 ${lines.length} 行`;
+
+      resultText.value = lines.join('\n');
+      stat.textContent = blocks.length ? `共 ${blocks.length} 条 → 输出 ${lines.length} 行` : '—';
     }
 
-    function flash(msg) {
-      stat.textContent = msg;
-      setTimeout(()=> render(), 1000);
+    function flash(message, hold = 1000) {
+      const last = stat.textContent;
+      stat.textContent = message;
+      if (hold) {
+        setTimeout(() => {
+          if (stat.textContent === message) {
+            stat.textContent = last;
+          }
+        }, hold);
+      }
     }
 
-    // 初次渲染
-    render();
+    convertBtn.addEventListener('click', convert);
+    [sourceText, customSep].forEach(el => el.addEventListener('input', convert));
+    trimPunc.addEventListener('change', convert);
+    sepSel.addEventListener('change', () => {
+      toggleCustomInput();
+      convert();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      sourceText.value = '';
+      resultText.value = '';
+      stat.textContent = '—';
+      sourceText.focus();
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      const text = resultText.value.trim();
+      if (!text) {
+        flash('没有可复制的内容', 1200);
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        flash('已复制到剪贴板');
+      } catch (err) {
+        flash('复制失败，请手动选择', 1500);
+      }
+    });
+
+    downloadBtn.addEventListener('click', evt => {
+      evt.preventDefault();
+      if (!resultText.value.trim()) {
+        flash('请先生成结果', 1200);
+        return;
+      }
+      const blob = new Blob([resultText.value], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'wordlines.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      flash('TXT 已导出');
+    });
+
+    sendBtn.addEventListener('click', evt => {
+      evt.preventDefault();
+      if (!resultText.value.trim()) {
+        flash('请先生成结果', 1200);
+        return;
+      }
+      flash('已推送到练习', 1500);
+    });
+
+    async function handlePaste() {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        flash('当前浏览器不支持一键粘贴', 1500);
+        return;
+      }
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          sourceText.value = text;
+          convert();
+          flash('已从剪贴板粘贴');
+        } else {
+          flash('剪贴板为空', 1200);
+        }
+      } catch (err) {
+        flash('读取剪贴板失败', 1500);
+      }
+    }
+
+    pasteChip.addEventListener('click', handlePaste);
+    pasteChip.addEventListener('keydown', evt => {
+      if (evt.key === 'Enter' || evt.key === ' ') {
+        evt.preventDefault();
+        handlePaste();
+      }
+    });
+
+    toggleCustomInput();
+    convert();
   </script>
 </body>
 </html>
